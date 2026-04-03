@@ -303,6 +303,78 @@
     chatMessages.appendChild(wrap);
     scrollToBottom();
   }
+  function renderContactActions(contact) {
+  if (!contact) return;
+
+  const hasAny =
+    contact.email ||
+    contact.phone ||
+    contact.whatsapp ||
+    contact.working_hours ||
+    contact.address;
+
+  if (!hasAny) return;
+
+  const wrap = document.createElement("div");
+  wrap.className = "bot-contact-actions";
+  wrap.style.display = "grid";
+  wrap.style.gap = "8px";
+  wrap.style.marginBottom = "12px";
+
+  if (contact.phone) {
+    const phoneLink = document.createElement("a");
+    phoneLink.href = `tel:${contact.phone.replace(/\s+/g, "")}`;
+    phoneLink.textContent = `📞 Call ${contact.phone}`;
+    phoneLink.className = "bot-image-card";
+    phoneLink.style.padding = "10px 12px";
+    phoneLink.style.textDecoration = "none";
+    phoneLink.style.color = "inherit";
+    wrap.appendChild(phoneLink);
+  }
+
+  if (contact.email) {
+    const emailLink = document.createElement("a");
+    emailLink.href = `mailto:${contact.email}`;
+    emailLink.textContent = `📧 Email ${contact.email}`;
+    emailLink.className = "bot-image-card";
+    emailLink.style.padding = "10px 12px";
+    emailLink.style.textDecoration = "none";
+    emailLink.style.color = "inherit";
+    wrap.appendChild(emailLink);
+  }
+
+  if (contact.whatsapp) {
+    const whatsappLink = document.createElement("a");
+    whatsappLink.href = `https://wa.me/${contact.whatsapp}`;
+    whatsappLink.target = "_blank";
+    whatsappLink.rel = "noopener noreferrer";
+    whatsappLink.textContent = "💬 Chat on WhatsApp";
+    whatsappLink.className = "bot-image-card";
+    whatsappLink.style.padding = "10px 12px";
+    whatsappLink.style.textDecoration = "none";
+    whatsappLink.style.color = "inherit";
+    wrap.appendChild(whatsappLink);
+  }
+
+  if (contact.working_hours) {
+    const hours = document.createElement("div");
+    hours.className = "bot-image-card";
+    hours.style.padding = "10px 12px";
+    hours.textContent = `🕒 ${contact.working_hours}`;
+    wrap.appendChild(hours);
+  }
+
+  if (contact.address) {
+    const address = document.createElement("div");
+    address.className = "bot-image-card";
+    address.style.padding = "10px 12px";
+    address.textContent = `📍 ${contact.address}`;
+    wrap.appendChild(address);
+  }
+
+  chatMessages.appendChild(wrap);
+  scrollToBottom();
+}
 
   async function sendMessageToBot(userText) {
     const response = await fetch(EDGE_FUNCTION_URL, {
@@ -345,6 +417,7 @@
 
       addMessage(result.message?.text || "No response received.", "bot");
       addImages(result.message?.images || []);
+      renderContactActions(result.contact || null);
     } catch (err) {
       removeTyping();
       console.error(err);
