@@ -336,11 +336,11 @@
 
     if (!hasAny) return;
 
-    const wrap = document.createElement("div");
-    wrap.className = "bot-contact-actions";
-    wrap.style.display = "grid";
-    wrap.style.gap = "8px";
-    wrap.style.marginBottom = "12px";
+      const wrap = document.createElement("div");
+      wrap.className = "bot-contact-actions";
+      wrap.style.display = "grid";
+      wrap.style.gap = "8px";
+      wrap.style.marginBottom = "12px";
 
     if (contact.phone) {
       const phoneLink = document.createElement("a");
@@ -430,6 +430,8 @@
 
     try {
       const result = await sendMessageToBot(text);
+      console.log("CHAT_SESSION_ID:", CHAT_SESSION_ID);
+      console.log("BOT RESULT:", result);
       removeTyping();
 
       if (!result.ok) {
