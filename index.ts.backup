@@ -1,0 +1,1143 @@
+import { createClient } from "jsr:@supabase/supabase-js@2";
+
+
+// ================== CONFIG ==================
+
+const env = (name) => {
+  const value = Deno.env.get(name);
+  if (!value) throw new Error(`Missing ${name}`);
+  return value;
+};
+
+const SUPABASE_URL = env("SUPABASE_URL");
+const SUPABASE_SERVICE_ROLE_KEY = env("SUPABASE_SERVICE_ROLE_KEY");
+const OPENAI_API_KEY = env("OPENAI_API_KEY");
+
+const OPENAI_CHAT_MODEL = Deno.env.get("OPENAI_CHAT_MODEL") || "gpt-4o-mini";
+const OPENAI_EMBEDDING_MODEL =
+  Deno.env.get("OPENAI_EMBEDDING_MODEL") || "text-embedding-3-small";
+
+const OPENAI_TIMEOUT_MS = 30000;
+const MATCH_COUNT = 5;
+const MAX_CONTEXT_CHUNKS = 4;
+const MAX_IMAGES = 3;
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
+
+// ================== CONSTANTS ==================
+
+const KNOWN_LABELS = [
+  "blackbutt",
+  "spotted gum",
+  "jarrah",
+  "tasmanian oak",
+  "grey iron bark",
+  "sydney blue gum",
+  "white gum",
+  "caramel oak",
+  "grey oak",
+  "helena oak",
+];
+
+const PRODUCT_TYPE_PATTERNS = {
+  solid_timber_flooring: [
+    "solid timber flooring",
+    "solid timber",
+    "timber flooring",
+    "solid hardwood",
+    "hardwood flooring",
+  ],
+  engineered_flooring: [
+    "engineered flooring",
+    "engineered timber",
+    "engineered timber flooring",
+    "engineered wood",
+    "engineered wood flooring",
+  ],
+  laminate_flooring: [
+    "laminate flooring",
+    "laminate",
+  ],
+  hybrid_flooring: [
+    "hybrid flooring",
+    "hybrid",
+  ],
+  sanding_polishing: [
+    "sanding polishing",
+    "sanding",
+    "polishing",
+  ],
+};
+
+const IMAGE_INTENT_KEYWORDS = [
+  "show pic",
+  "show pics",
+  "show image",
+  "show images",
+  "pics",
+  "pictures",
+  "photos",
+  "images",
+  "gallery",
+  "sample",
+  "samples",
+  "example",
+  "examples",
+  "can i see",
+  "can you show",
+  "look like",
+];
+
+const SUBURB_TERMS = [
+  "blacktown",
+  "baulkham hills",
+  "seven hills",
+  "epping",
+  "castle hill",
+  "parramatta",
+  "sydney olympic park",
+  "hills district",
+];
+
+const PRODUCT_RESPONSE_TEXT = {
+  solid_timber_flooring:
+    "Here are some solid timber flooring samples you can explore 👇 If one stands out, I can show you more solid timber options in similar tones or finishes.",
+  engineered_flooring:
+    "Here are some engineered timber flooring samples you can explore 👇 If one stands out, I can show you more engineered options in similar tones or finishes.",
+  hybrid_flooring:
+    "Here are some hybrid flooring samples you can explore 👇 If one stands out, I can show you more hybrid options in similar tones or finishes.",
+  laminate_flooring:
+    "Here are some laminate flooring samples you can explore 👇 If one stands out, I can show you more laminate options in similar tones or finishes.",
+};
+
+const TONE_RESPONSE_TEXT = {
+  dark:
+    "Here are a few darker-toned wood flooring samples you can explore 👇 If one stands out, I can show you more dark options in solid timber, engineered, hybrid, or laminate.",
+  light:
+    "Here are a few lighter-toned flooring samples you can explore 👇 If one stands out, I can show you more light options in solid timber, engineered, hybrid, or laminate.",
+  grey:
+    "Here are a few grey-toned flooring samples you can explore 👇 If one stands out, I can show you more grey options in solid timber, engineered, hybrid, or laminate.",
+  warm:
+    "Here are a few warm-toned flooring samples you can explore 👇 If one stands out, I can show you more warm options in solid timber, engineered, hybrid, or laminate.",
+  natural:
+    "Here are a few natural-looking flooring samples you can explore 👇 If one stands out, I can show you more natural options in solid timber, engineered, hybrid, or laminate.",
+};
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-session-id",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Content-Type": "application/json",
+};
+
+
+// ================== LEAD CAPTURE STATE (MVP) ==================
+
+const leadState = {};
+
+
+// ================== RESPONSE / REQUEST HELPERS ==================
+
+function jsonResponse(body, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: corsHeaders,
+  });
+}
+
+async function parseRequestBody(req) {
+  const contentType = req.headers.get("content-type") || "";
+  if (!contentType.toLowerCase().includes("application/json")) {
+    throw new Error("Content-Type must be application/json");
+  }
+
+  const body = await req.json().catch(() => {
+    throw new Error("Invalid JSON body");
+  });
+
+  const message = typeof body?.message === "string" ? body.message.trim() : "";
+  if (!message) throw new Error("message is required");
+
+  return { message };
+}
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = OPENAI_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+function lower(text) {
+  return String(text || "").toLowerCase();
+}
+
+
+// ================== CONTACT INFO ENGINE ==================
+
+async function getBusinessInfoMap() {
+  const { data, error } = await supabase
+    .from("business_info")
+    .select("key, value");
+
+  if (error) return {};
+
+  const info = {};
+  for (const row of data || []) {
+    if (row?.key) info[row.key] = row.value;
+  }
+
+  return info;
+}
+
+function getContactIntent(message) {
+  const text = lower(message);
+
+  if (
+    text.includes("hours") ||
+    text.includes("open") ||
+    text.includes("closing") ||
+    text.includes("working time") ||
+    text.includes("weekend") ||
+    text.includes("saturday") ||
+    text.includes("sunday") ||
+    text.includes("weekdays")
+  ) {
+    return "working_hours";
+  }
+
+  if (
+    text.includes("email") ||
+    text.includes("email id") ||
+    text.includes("email address") ||
+    text.includes("contact email")
+  ) {
+    return "email";
+  }
+
+  if (
+    text.includes("phone") ||
+    text.includes("phone number") ||
+    text.includes("mobile") ||
+    text.includes("call") ||
+    text.includes("contact number")
+  ) {
+    return "phone";
+  }
+
+  if (
+    text.includes("whatsapp") ||
+    text.includes("whats app")
+  ) {
+    return "whatsapp";
+  }
+
+  if (
+    text.includes("address") ||
+    text.includes("located") ||
+    text.includes("location") ||
+    text.includes("where are you") ||
+    text.includes("where is your office")
+  ) {
+    return "address";
+  }
+
+  if (
+    text.includes("contact") ||
+    text.includes("reach you") ||
+    text.includes("get in touch")
+  ) {
+    return "contact";
+  }
+
+  return null;
+}
+
+function buildContactResponse(intent, info, message) {
+  const text = lower(message);
+
+  if (intent === "working_hours") {
+    const hours = info.working_hours;
+    if (!hours) {
+      return "Please contact us directly for the latest working hours.";
+    }
+
+    if (text.includes("weekend") || text.includes("saturday") || text.includes("sunday")) {
+      return `Our weekend availability is included in our working hours: ${hours}`;
+    }
+
+    if (text.includes("weekdays")) {
+      return `Our weekday availability is included in our working hours: ${hours}`;
+    }
+
+    return hours;
+  }
+
+  if (intent === "email") {
+    return info.email
+      ? `You can reach us via email at 📧 **${info.email}**.`
+      : "Sorry, I don’t have the email address available right now.";
+  }
+
+  if (intent === "phone") {
+    return info.phone
+      ? `You can call us on 📞 **${info.phone}**.`
+      : "Sorry, I don’t have the phone number available right now.";
+  }
+
+  if (intent === "whatsapp") {
+    return info.whatsapp
+      ? `You can reach us on WhatsApp here: https://wa.me/${info.whatsapp}`
+      : "Sorry, I don’t have the WhatsApp contact available right now.";
+  }
+
+  if (intent === "address") {
+    return info.address
+      ? `You can find us at 📍 **${info.address}**.`
+      : "Sorry, I don’t have the address available right now.";
+  }
+
+  if (intent === "contact") {
+    const parts = [];
+
+    if (info.phone) parts.push(`📞 Phone: **${info.phone}**`);
+    if (info.email) parts.push(`📧 Email: **${info.email}**`);
+    if (info.working_hours) parts.push(`🕒 Hours: ${info.working_hours}`);
+    if (info.address) parts.push(`📍 Address: **${info.address}**`);
+
+    if (parts.length === 0) {
+      return "Please contact us directly and we’ll be happy to help.";
+    }
+
+    return `Here’s how you can reach us:\n\n${parts.join("\n")}`;
+  }
+
+  return null;
+}
+
+
+// ================== LEAD CAPTURE HELPERS ==================
+
+function detectLeadIntent(message) {
+  const text = lower(message);
+
+  return (
+    text.includes("quote") ||
+    text.includes("price") ||
+    text.includes("cost") ||
+    text.includes("install") ||
+    text.includes("installation") ||
+    text.includes("measure") ||
+    text.includes("visit") ||
+    text.includes("estimate")
+  );
+}
+
+function getLeadSessionId(req) {
+  return req.headers.get("x-session-id") || "default";
+}
+
+function getLeadState(sessionId) {
+  if (!leadState[sessionId]) {
+    leadState[sessionId] = {
+      step: null,
+      data: {},
+    };
+  }
+  return leadState[sessionId];
+}
+
+function clearLeadState(sessionId) {
+  delete leadState[sessionId];
+}
+
+async function saveLeadToDatabase(lead) {
+  const payload = {
+    name: lead.name || null,
+    phone: lead.phone || null,
+    suburb: lead.suburb || null,
+    message: lead.message || null,
+  };
+
+  const { error } = await supabase.from("leads").insert(payload);
+  if (error) {
+    throw new Error(`Lead save failed: ${error.message}`);
+  }
+}
+
+function buildLeadResponse(text) {
+  return jsonResponse({
+    ok: true,
+    message: {
+      text,
+      images: [],
+    },
+    match_context: {
+      special_route: "lead_capture",
+    },
+  });
+}
+
+
+// ================== INTENT EXTRACTION ==================
+
+function extractLabelFromText(text) {
+  const t = lower(text);
+  return KNOWN_LABELS.find((label) => t.includes(label)) || null;
+}
+
+function extractProductTypeFromText(text) {
+  const t = lower(text);
+
+  for (const [productType, phrases] of Object.entries(PRODUCT_TYPE_PATTERNS)) {
+    if (phrases.some((phrase) => t.includes(phrase))) return productType;
+  }
+
+  return null;
+}
+
+function extractToneIntent(text) {
+  const t = lower(text);
+
+  if (
+    t.includes("dark") ||
+    t.includes("dark colour") ||
+    t.includes("dark color") ||
+    t.includes("dark wood") ||
+    t.includes("dark timber")
+  ) return "dark";
+
+  if (
+    t.includes("light") ||
+    t.includes("blonde") ||
+    t.includes("light colour") ||
+    t.includes("light color")
+  ) return "light";
+
+  if (t.includes("grey") || t.includes("gray")) return "grey";
+  if (t.includes("warm")) return "warm";
+  if (t.includes("natural")) return "natural";
+
+  return null;
+}
+
+function hasImageIntent(text) {
+  const t = lower(text);
+  return IMAGE_INTENT_KEYWORDS.some((keyword) => t.includes(keyword));
+}
+
+function isGenericImageRequest(wantsImages, searchLabel, searchProductType) {
+  return wantsImages && !searchLabel && !searchProductType;
+}
+
+
+// ================== CHUNK FILTERING ==================
+
+function isUsefulChunk(chunk, userMessage) {
+  const content = lower(chunk?.content);
+  const pageTitle = lower(chunk?.page_title);
+  const sectionTitle = lower(chunk?.section_title);
+  const query = lower(userMessage);
+
+  if (!content || content.length < 120) return false;
+  if (content.includes("![")) return false;
+  if (sectionTitle.includes("![")) return false;
+  if (content.includes("[previous image]") || content.includes("[next image]")) return false;
+  if (sectionTitle.includes("[previous image]") || sectionTitle.includes("[next image]")) return false;
+  if (pageTitle.includes("dummy post") || content.includes("dummy post")) return false;
+
+  const queryIsProductFocused = [
+    "blackbutt",
+    "timber flooring",
+    "solid timber",
+    "engineered flooring",
+    "engineered timber",
+    "hybrid flooring",
+    "laminate flooring",
+    "jarrah",
+    "spotted gum",
+    "oak",
+  ].some((term) => query.includes(term));
+
+  if (
+    queryIsProductFocused &&
+    SUBURB_TERMS.some(
+      (term) =>
+        content.includes(term) || pageTitle.includes(term) || sectionTitle.includes(term),
+    )
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+function buildContextFromChunks(chunks) {
+  return chunks
+    .map((chunk, index) => {
+      const title = chunk.page_title || "Untitled page";
+      const section = chunk.section_title || "General";
+      const content = chunk.content || "";
+
+      return `[Source ${index + 1}]
+Page: ${title}
+Section: ${section}
+Content: ${content}`;
+    })
+    .join("\n\n");
+}
+
+
+// ================== RANDOMNESS / IMAGE SCORING ==================
+
+function hashString(text) {
+  let hash = 0;
+  const str = String(text || "");
+
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash * 31 + str.charCodeAt(i)) >>> 0;
+  }
+
+  return hash;
+}
+
+function seededShuffle(items, seedText) {
+  const arr = [...items];
+  let seed = hashString(seedText);
+
+  for (let i = arr.length - 1; i > 0; i--) {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    const j = seed % (i + 1);
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+
+  return arr;
+}
+
+function scoreFallbackImage(img, toneIntent = null) {
+  const label = lower(img?.image_label);
+  const url = lower(img?.image_url);
+  const pageUrl = lower(img?.page_url);
+  const sectionTitle = lower(img?.section_title);
+  const productType = lower(img?.product_type);
+
+  let score = 0;
+
+  if (img?.is_primary === true) score += 25;
+  score += Number(img?.display_priority || 0);
+
+  const productBoost = {
+    solid_timber_flooring: 12,
+    engineered_flooring: 10,
+    hybrid_flooring: 8,
+    laminate_flooring: 6,
+  };
+  score += productBoost[productType] || 0;
+
+  if (pageUrl.includes("/solid-timber-flooring/")) score += 10;
+  if (pageUrl.includes("/engineered-flooring/")) score += 8;
+  if (pageUrl.includes("/hybrid-flooring/")) score += 6;
+  if (pageUrl.includes("/laminate-flooring/")) score += 4;
+
+  if (sectionTitle.includes("ranges")) score += 5;
+  if (sectionTitle.includes("colours") || sectionTitle.includes("colors")) score += 5;
+  if (sectionTitle.includes("options")) score += 4;
+
+  if (label && label.length >= 4) score += 4;
+  if (/[a-z]/.test(label) && !/\d/.test(label)) score += 5;
+
+  if (/^(image|img)[ _-]?\d+$/i.test(label)) score -= 12;
+  if (/^[a-z]+floor\d+$/i.test(label)) score -= 10;
+  if (/^\w+\d+$/.test(label)) score -= 6;
+
+  if (url.includes("laminatefloor")) score -= 10;
+  if (url.includes("image-")) score -= 8;
+  if (url.includes("img_")) score -= 8;
+  if (url.includes("wechat")) score -= 12;
+  if (url.includes("tmp")) score -= 12;
+
+  ["blackbutt", "spotted-gum", "jarrah", "tasmanian-oak", "grey-iron-bark"].forEach((term) => {
+    if (url.includes(term)) score += 6;
+  });
+
+  if (url.includes("solid-timber-flooring")) score += 4;
+  if (url.includes("engineered-flooring")) score += 4;
+
+  if (toneIntent === "dark") {
+    if (
+      label.includes("jarrah") ||
+      label.includes("grey iron bark") ||
+      label.includes("spotted gum") ||
+      url.includes("jarrah") ||
+      url.includes("grey-iron-bark") ||
+      url.includes("spotted-gum")
+    ) score += 20;
+
+    if (
+      label.includes("lime wash") ||
+      label.includes("chardonay") ||
+      label.includes("tasmanian oak") ||
+      url.includes("lime-wash") ||
+      url.includes("chardonay") ||
+      url.includes("tasmanian-oak")
+    ) score -= 14;
+  }
+
+  if (toneIntent === "light") {
+    if (
+      label.includes("blackbutt") ||
+      label.includes("tasmanian oak") ||
+      label.includes("lime wash") ||
+      label.includes("chardonay") ||
+      url.includes("blackbutt") ||
+      url.includes("tasmanian-oak") ||
+      url.includes("lime-wash") ||
+      url.includes("chardonay")
+    ) score += 18;
+
+    if (
+      label.includes("jarrah") ||
+      label.includes("grey iron bark") ||
+      url.includes("jarrah") ||
+      url.includes("grey-iron-bark")
+    ) score -= 10;
+  }
+
+  if (toneIntent === "grey" && (label.includes("grey") || url.includes("grey"))) score += 18;
+
+  if (toneIntent === "warm") {
+    if (
+      label.includes("jarrah") ||
+      label.includes("spotted gum") ||
+      label.includes("chardonay") ||
+      url.includes("jarrah") ||
+      url.includes("spotted-gum") ||
+      url.includes("chardonay")
+    ) score += 12;
+  }
+
+  if (toneIntent === "natural") {
+    if (
+      label.includes("blackbutt") ||
+      label.includes("spotted gum") ||
+      label.includes("tasmanian oak") ||
+      url.includes("blackbutt") ||
+      url.includes("spotted-gum") ||
+      url.includes("tasmanian-oak")
+    ) score += 12;
+  }
+
+  return score;
+}
+
+
+// ================== OPENAI ==================
+
+async function createQueryEmbedding(inputText) {
+  const text = String(inputText || "").trim();
+  if (!text) throw new Error("Embedding input text is empty");
+
+  try {
+    const response = await fetchWithTimeout("https://api.openai.com/v1/embeddings", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: OPENAI_EMBEDDING_MODEL,
+        input: text,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`OpenAI embedding failed: ${response.status} ${errorText}`);
+    }
+
+    const data = await response.json();
+    const embedding = data?.data?.[0]?.embedding;
+
+    if (!Array.isArray(embedding) || embedding.length === 0) {
+      throw new Error("OpenAI embedding response did not contain a valid embedding");
+    }
+
+    return embedding;
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error("OpenAI embedding request timed out");
+    }
+    throw error;
+  }
+}
+
+async function generateAnswer(userMessage, chunks) {
+  const context = buildContextFromChunks(chunks);
+
+  const systemPrompt = `
+You are Uttara, a friendly and knowledgeable flooring assistant for MTE Floors.
+
+Your role is to help customers explore flooring options, colours, finishes, installation, and next steps.
+
+Style:
+- Sound like a helpful flooring showroom expert, not a robot.
+- Be warm, natural, and concise.
+- Use simple language.
+- Keep answers easy to read.
+- Do not sound overly formal or generic.
+
+Rules:
+- Use only the provided context.
+- If the context is weak or incomplete, say so politely.
+- Do not invent facts.
+- Avoid mixing up product names and suburb/location names.
+- If the user seems frustrated or says the answer is wrong, acknowledge it and recover politely.
+- Do not push contact details too early unless the user is asking for contact information or clearly wants the next step.
+- If relevant, guide the user toward styles, finishes, recommendations, images, or a quote.
+
+Response behavior:
+- For simple questions, keep the answer short.
+- For product/style questions, answer clearly first, then offer one helpful next step.
+- If images are being shown, speak positively about them instead of saying you cannot show images.
+- Avoid stiff phrases like "I appreciate your interest" or "Unfortunately, I don't have that information in the provided context."
+- Prefer natural phrasing like:
+  - "Here are some options you can explore"
+  - "If you'd like, I can show more in a similar style"
+  - "That’s a popular choice"
+
+Avoid:
+- Long paragraphs
+- Repeating information
+- Formal or robotic phrases  
+`.trim();
+
+  const userPrompt = `
+Customer question:
+${userMessage}
+
+Relevant context:
+${context}
+
+Write a grounded, helpful answer for the customer.
+`.trim();
+
+  try {
+    const response = await fetchWithTimeout("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: OPENAI_CHAT_MODEL,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        temperature: 0.3,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`OpenAI chat failed: ${response.status} ${errorText}`);
+    }
+
+    const data = await response.json();
+    const answerText = data?.choices?.[0]?.message?.content?.trim() || "";
+    if (!answerText) throw new Error("OpenAI chat response did not contain a valid answer");
+
+    return { answerText, raw: data };
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error("OpenAI chat request timed out");
+    }
+    throw error;
+  }
+}
+
+
+// ================== SUPABASE LOOKUPS ==================
+
+async function retrieveChunks(queryEmbedding) {
+  const { data, error } = await supabase.rpc("match_website_chunks", {
+    query_embedding: queryEmbedding,
+    match_count: MATCH_COUNT,
+    filter: {},
+  });
+
+  if (error) throw new Error(`Chunk retrieval failed: ${error.message}`);
+  return data || [];
+}
+
+async function lookupImages(searchLabel, searchProductType) {
+  const { data, error } = await supabase.rpc("match_website_images", {
+    search_label: searchLabel,
+    search_product_type: searchProductType,
+    search_page_url: null,
+    match_count: MAX_IMAGES,
+  });
+
+  if (error) throw new Error(`Image lookup failed: ${error.message}`);
+  return data || [];
+}
+
+async function lookupFallbackImages(seedText = "", toneIntent = null) {
+  const { data, error } = await supabase
+    .from("website_images")
+    .select("image_url,image_label,page_url,product_type,section_title,is_primary,display_priority")
+    .not("image_url", "is", null)
+    .limit(80);
+
+  if (error) throw new Error(`Fallback image lookup failed: ${error.message}`);
+
+  const ranked = (data || [])
+    .map((img) => ({
+      ...img,
+      match_source: "fallback",
+      fallback_score: scoreFallbackImage(img, toneIntent),
+    }))
+    .sort((a, b) => b.fallback_score - a.fallback_score);
+
+  const strongCandidates = ranked.filter((img) => img.fallback_score >= 20);
+  const candidatePool =
+    strongCandidates.length >= 12 ? strongCandidates.slice(0, 12) : ranked.slice(0, 12);
+
+  const grouped = new Map();
+  for (const img of candidatePool) {
+    const key = img.product_type || "unknown";
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key).push(img);
+  }
+
+  const productTypes = seededShuffle([...grouped.keys()], `${seedText}:types`);
+  const selected = [];
+  const usedUrls = new Set();
+
+  for (const type of productTypes) {
+    const group = seededShuffle(grouped.get(type) || [], `${seedText}:${type}`);
+    for (const img of group) {
+      if (!usedUrls.has(img.image_url)) {
+        selected.push(img);
+        usedUrls.add(img.image_url);
+        break;
+      }
+    }
+    if (selected.length >= MAX_IMAGES) break;
+  }
+
+  if (selected.length < MAX_IMAGES) {
+    const remainder = seededShuffle(candidatePool, `${seedText}:remainder`);
+    for (const img of remainder) {
+      if (!usedUrls.has(img.image_url)) {
+        selected.push(img);
+        usedUrls.add(img.image_url);
+      }
+      if (selected.length >= MAX_IMAGES) break;
+    }
+  }
+
+  return selected.slice(0, MAX_IMAGES);
+}
+
+
+// ================== RESPONSE TEXT ==================
+
+function normalizeAnswerForImages(answerText, wantsImages, imagesFound) {
+  if (!wantsImages || !imagesFound) return answerText;
+
+  const lowerText = lower(answerText);
+  const negativeImagePhrases = [
+    "not able to show picture",
+    "not able to show pictures",
+    "can't show picture",
+    "can't show pictures",
+    "cannot show picture",
+    "cannot show pictures",
+    "unable to show picture",
+    "unable to show pictures",
+    "unable to show pictures directly",
+    "unable to show images",
+    "not able to show images",
+    "cannot show images",
+    "can't show images",
+  ];
+
+  if (negativeImagePhrases.some((phrase) => lowerText.includes(phrase))) {
+    return "Here are some flooring images you can look through. Let me know if you want a specific style, colour, finish, or timber type such as Blackbutt, Spotted Gum, or Jarrah.";
+  }
+
+  return answerText;
+}
+
+function buildImageLedResponse({ images, genericImageRequest, toneIntent, searchProductType, answerText, wantsImages }) {
+  let finalAnswerText = normalizeAnswerForImages(answerText, wantsImages, images.length > 0);
+
+  if (!images.length) return finalAnswerText;
+
+  if (searchProductType && PRODUCT_RESPONSE_TEXT[searchProductType]) {
+    return PRODUCT_RESPONSE_TEXT[searchProductType];
+  }
+
+  if (genericImageRequest) {
+    return TONE_RESPONSE_TEXT[toneIntent] ||
+      "Here are a few flooring samples across different styles 👇 If one stands out, I can show you more options in solid timber, engineered, hybrid, or laminate.";
+  }
+
+  return finalAnswerText.replace(
+    /I (can't|cannot|am unable to).*?(image|picture)s?.*?\./gi,
+    "Here are some flooring options you can explore 👇",
+  );
+}
+
+
+// ================== MAIN ==================
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: corsHeaders });
+  }
+
+  if (req.method !== "POST") {
+    return jsonResponse({ ok: false, error: "Method not allowed. Use POST." }, 405);
+  }
+
+  try {
+    // ===== receives user message =====
+    const { message } = await parseRequestBody(req);
+    const sessionId = getLeadSessionId(req);
+    const state = getLeadState(sessionId);
+    console.log("lead-debug sessionId:", sessionId);
+    console.log("lead-debug current state:", JSON.stringify(state));
+    console.log("lead-debug incoming message:", message);
+
+    // ===== lead capture flow =====
+    if (state.step === "ask_name") {
+      state.data.name = message;
+      state.step = "ask_phone";
+
+      return jsonResponse({
+        ok: true,
+        message: {
+          text: "Thanks 👍 What’s your phone number?",
+          images: [],
+        },
+        lead: {
+          active: true,
+          step: "ask_phone",
+        },
+        match_context: {
+          special_route: "lead_capture",
+        },
+      });
+    }
+
+    if (state.step === "ask_phone") {
+      state.data.phone = message;
+      state.step = "ask_suburb";
+
+      return jsonResponse({
+        ok: true,
+        message: {
+          text: "Got it 👍 Which suburb are you in?",
+          images: [],
+        },
+        lead: {
+          active: true,
+          step: "ask_suburb",
+        },
+        match_context: {
+          special_route: "lead_capture",
+        },
+      });
+    }
+
+    if (state.step === "ask_suburb") {
+      state.data.suburb = message;
+      state.data.message = "Lead from chatbot";
+
+      await saveLeadToDatabase(state.data);
+      clearLeadState(sessionId);
+
+      return jsonResponse({
+        ok: true,
+        message: {
+          text: "Perfect 👍 Our team will contact you shortly for a free quote.",
+          images: [],
+        },
+        lead: {
+          active: false,
+          step: "completed",
+        },
+        match_context: {
+          special_route: "lead_capture",
+        },
+      });
+    }
+
+    // ===== contact info shortcut =====
+    const contactIntent = getContactIntent(message);
+
+    if (contactIntent) {
+      const info = await getBusinessInfoMap();
+      const contactText = buildContactResponse(contactIntent, info, message);
+
+      return jsonResponse({
+        ok: true,
+        message: {
+          text: contactText || "Please contact us directly and we’ll be happy to help.",
+          images: [],
+        },
+        contact: {
+          email: info.email || null,
+          phone: info.phone || null,
+          whatsapp: info.whatsapp || null,
+          working_hours: info.working_hours || null,
+          address: info.address || null,
+        },
+        match_context: {
+          special_route: "contact_info",
+          contact_intent: contactIntent,
+        },
+        debug: {
+          available_business_info_keys: Object.keys(info),
+        },
+      });
+    }
+
+    // ===== quote / lead intent trigger =====
+    if (detectLeadIntent(message)) {
+      state.step = "ask_name";
+      state.data = {};
+
+      return jsonResponse({
+        ok: true,
+        message: {
+          text: "Great — I can help with that 👍 To get you a proper quote, can I get your name?",
+          images: [],
+        },
+        lead: {
+          active: true,
+          step: "ask_name",
+        },
+        match_context: {
+          special_route: "lead_capture_start",
+        },
+      });
+    }
+
+    // ===== creates embedding =====
+    const queryEmbedding = await createQueryEmbedding(message);
+
+    // ===== retrieves chunks =====
+    const chunks = await retrieveChunks(queryEmbedding);
+
+    // ===== filters chunks =====
+    const filteredChunks = chunks
+      .filter((chunk) => isUsefulChunk(chunk, message))
+      .slice(0, MAX_CONTEXT_CHUNKS);
+
+    const finalChunks =
+      filteredChunks.length > 0 ? filteredChunks : chunks.slice(0, MAX_CONTEXT_CHUNKS);
+
+    // ===== generates answer =====
+    const { answerText, raw } = await generateAnswer(message, finalChunks);
+
+    // ===== derives intent from USER MESSAGE =====
+    const wantsImages = hasImageIntent(message) || hasImageIntent(answerText);
+    const searchLabel = extractLabelFromText(message);
+    const searchProductType = extractProductTypeFromText(message);
+    const toneIntent = extractToneIntent(message);
+    const genericImageRequest = isGenericImageRequest(
+      wantsImages,
+      searchLabel,
+      searchProductType,
+    );
+
+    // ===== debug-only inference from answer =====
+    const inferredFromAnswer = {
+      label: extractLabelFromText(answerText),
+      product_type: extractProductTypeFromText(answerText),
+    };
+
+    // ===== image retrieval =====
+    let images = [];
+    let imageWarning = null;
+
+    try {
+      if (searchLabel || searchProductType) {
+        images = await lookupImages(searchLabel, searchProductType);
+      } else if (wantsImages) {
+        images = await lookupFallbackImages(message, toneIntent);
+      }
+    } catch (err) {
+      imageWarning = err instanceof Error ? err.message : "Unknown image lookup error";
+      console.error("Image lookup warning:", imageWarning);
+    }
+
+    // ===== final text =====
+    const finalAnswerText = buildImageLedResponse({
+      images,
+      genericImageRequest,
+      toneIntent,
+      searchProductType,
+      answerText,
+      wantsImages,
+    });
+
+    // ===== frontend image payload =====
+    const formattedImages = images.map((img) => ({
+      url: img.image_url,
+      label: img.image_label,
+      page_url: img.page_url,
+    }));
+
+    // ===== response =====
+    return jsonResponse({
+      ok: true,
+      message: {
+        text: finalAnswerText,
+        images: formattedImages,
+      },
+      match_context: {
+        label: searchLabel,
+        product_type: searchProductType,
+        wants_images: wantsImages,
+        generic_image_request: genericImageRequest,
+        tone_intent: toneIntent,
+      },
+      retrieval: {
+        original_chunk_count: chunks.length,
+        used_chunk_count: finalChunks.length,
+        top_sources: finalChunks.map((c) => ({
+          url: c.url,
+          page_title: c.page_title,
+          section_title: c.section_title,
+          similarity: c.similarity,
+        })),
+      },
+      debug: {
+        image_warning: imageWarning,
+        openai_choice_count: raw?.choices?.length || 0,
+        inferred_from_answer: inferredFromAnswer,
+        lead_session_active: Boolean(leadState[sessionId]),
+      },
+    });
+  } catch (error) {
+    console.error("chat-orchestrator error:", error);
+
+    return jsonResponse(
+      { ok: false, error: error instanceof Error ? error.message : "Unknown error" },
+      500,
+    );
+  }
+});
