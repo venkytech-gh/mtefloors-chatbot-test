@@ -5,174 +5,79 @@
   <title>MTE Floors — Chatbot Test</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      margin: 0;
-      background: #f5f5f5;
-      color: #333;
-    }
+    /* ========== BASE ========== */
+    body { font-family: Arial, sans-serif; margin: 0; background: #f5f5f5; color: #333; }
 
-    header {
-      background: #5a3e2b;
-      color: white;
-      padding: 20px;
-      text-align: center;
-    }
+    header { background: #5a3e2b; color: white; padding: 20px; text-align: center; }
 
-    main {
-      padding: 40px;
-      max-width: 900px;
-      margin: auto;
-      background: white;
-    }
+    main { padding: 40px; max-width: 900px; margin: auto; background: white; }
+    main h1 { margin-top: 0; }
 
-    h1 {
-      margin-top: 0;
-    }
+    .highlight { background: #fff4e6; padding: 20px; border-radius: 8px; margin-top: 20px; }
 
-    .highlight {
-      background: #fff4e6;
-      padding: 20px;
-      border-radius: 8px;
-      margin-top: 20px;
-    }
-
-    /* Chat widget */
+    /* ========== CHAT TOGGLE BUTTON ========== */
     .chatbot-toggle {
-      position: fixed;
-      right: 20px;
-      bottom: 20px;
-      background: #5a3e2b;
-      color: white;
-      border: none;
-      border-radius: 999px;
-      padding: 14px 18px;
-      cursor: pointer;
-      font-size: 15px;
-      box-shadow: 0 8px 24px rgba(0,0,0,0.18);
-      z-index: 1000;
+      position: fixed; right: 20px; bottom: 20px;
+      background: #5a3e2b; color: white;
+      border: none; border-radius: 999px;
+      padding: 14px 18px; font-size: 15px;
+      cursor: pointer; box-shadow: 0 8px 24px rgba(0,0,0,0.18); z-index: 1000;
     }
 
+    /* ========== CHAT PANEL ========== */
     .chatbot-panel {
-      position: fixed;
-      right: 20px;
-      bottom: 80px;
-      width: 360px;
-      max-width: calc(100vw - 24px);
-      height: 520px;
-      background: white;
-      border-radius: 14px;
+      position: fixed; right: 20px; bottom: 80px;
+      width: 360px; max-width: calc(100vw - 24px); height: 520px;
+      background: white; border-radius: 14px;
       box-shadow: 0 14px 40px rgba(0,0,0,0.22);
-      overflow: hidden;
-      display: none;
-      flex-direction: column;
-      z-index: 1000;
-      border: 1px solid #ddd;
+      display: none; flex-direction: column;
+      overflow: hidden; z-index: 1000; border: 1px solid #ddd;
     }
 
     .chatbot-header {
-      background: #5a3e2b;
-      color: white;
-      padding: 14px 16px;
-      font-weight: 600;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
+      background: #5a3e2b; color: white;
+      padding: 14px 16px; font-weight: 600;
+      display: flex; align-items: center; justify-content: space-between;
     }
+    .chatbot-close { background: transparent; border: none; color: white; font-size: 20px; cursor: pointer; }
 
-    .chatbot-close {
-      background: transparent;
-      border: none;
-      color: white;
-      font-size: 20px;
-      cursor: pointer;
-    }
-
-    .chat-messages {
-      flex: 1;
-      overflow-y: auto;
-      padding: 14px;
-      background: #fafafa;
-    }
+    /* ========== MESSAGES ========== */
+    .chat-messages { flex: 1; overflow-y: auto; padding: 14px; background: #fafafa; }
 
     .message {
-      margin-bottom: 12px;
-      padding: 10px 12px;
-      border-radius: 10px;
-      max-width: 85%;
-      white-space: pre-wrap;
-      line-height: 1.4;
-      border: 1px solid #eee;
-      font-size: 14px;
+      margin-bottom: 12px; padding: 10px 12px;
+      border-radius: 10px; max-width: 85%;
+      white-space: pre-wrap; line-height: 1.4;
+      border: 1px solid #eee; font-size: 14px;
     }
+    .message.user { background: #d9fdd3; margin-left: auto; }
+    .message.bot  { background: white; margin-right: auto; }
 
-    .message.user {
-      background: #d9fdd3;
-      margin-left: auto;
-    }
+    .typing { font-size: 13px; color: #666; margin-bottom: 10px; }
 
-    .message.bot {
-      background: white;
-      margin-right: auto;
-    }
-
-    .bot-image-list {
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 10px;
-      margin-bottom: 12px;
-    }
+    /* ========== IMAGE CARDS ========== */
+    .bot-image-list { display: grid; grid-template-columns: 1fr; gap: 10px; margin-bottom: 12px; }
 
     .bot-image-card {
-      display: block;
-      text-decoration: none;
-      color: inherit;
-      background: white;
-      border: 1px solid #eee;
-      border-radius: 10px;
-      overflow: hidden;
+      display: block; text-decoration: none; color: inherit;
+      background: white; border: 1px solid #eee; border-radius: 10px; overflow: hidden;
+    }
+    .bot-image-card img   { width: 100%; display: block; object-fit: cover; max-height: 180px; }
+    .bot-image-label      { padding: 8px 10px; font-size: 14px; font-weight: 600; }
+
+    /* ========== CONTACT ACTION CARDS ========== */
+    .bot-contact-actions { display: grid; gap: 8px; margin-bottom: 12px; }
+
+    .contact-card {
+      display: block; padding: 10px 12px;
+      text-decoration: none; color: inherit;
+      background: white; border: 1px solid #eee; border-radius: 10px;
     }
 
-    .bot-image-card img {
-      width: 100%;
-      display: block;
-      object-fit: cover;
-      max-height: 180px;
-    }
-
-    .bot-image-label {
-      padding: 8px 10px;
-      font-size: 14px;
-      font-weight: 600;
-    }
-
-    .chat-input-wrap {
-      display: flex;
-      border-top: 1px solid #ddd;
-      background: white;
-    }
-
-    .chat-input {
-      flex: 1;
-      padding: 12px;
-      border: none;
-      outline: none;
-      font-size: 14px;
-    }
-
-    .chat-send {
-      padding: 12px 16px;
-      border: none;
-      background: #5a3e2b;
-      color: white;
-      cursor: pointer;
-    }
-
-    .typing {
-      font-size: 13px;
-      color: #666;
-      margin-bottom: 10px;
-    }
+    /* ========== INPUT BAR ========== */
+    .chat-input-wrap { display: flex; border-top: 1px solid #ddd; background: white; }
+    .chat-input  { flex: 1; padding: 12px; border: none; outline: none; font-size: 14px; }
+    .chat-send   { padding: 12px 16px; border: none; background: #5a3e2b; color: white; cursor: pointer; }
   </style>
 </head>
 
@@ -185,14 +90,8 @@
 
 <main>
   <h2>Welcome</h2>
-  <p>
-    This is a test site for our virtual flooring assistant, Uttara.
-    She can help you explore flooring options and arrange a quote.
-  </p>
-
-  <div class="highlight">
-    💬 Try chatting with Uttara using the button at the bottom right.
-  </div>
+  <p>This is a test site for our virtual flooring assistant, Uttara. She can help you explore flooring options and arrange a quote.</p>
+  <div class="highlight">💬 Try chatting with Uttara using the button at the bottom right.</div>
 
   <h2>Our Services</h2>
   <ul>
@@ -210,213 +109,172 @@
     <span>Uttara • MTE Floors</span>
     <button id="chatbot-close" class="chatbot-close">&times;</button>
   </div>
-
   <div id="chat-messages" class="chat-messages">
-    <div class="message bot">
-      Hi! I’m here to help with flooring options, colours, installation, and quotes. What would you like to know?
-    </div>
+    <div class="message bot">Hi! I'm here to help with flooring options, colours, installation, and quotes. What would you like to know?</div>
   </div>
-
   <form id="chat-form" class="chat-input-wrap">
-    <input
-      id="chat-input"
-      class="chat-input"
-      type="text"
-      placeholder="Ask about flooring..."
-      autocomplete="off"
-    />
+    <input id="chat-input" class="chat-input" type="text" placeholder="Ask about flooring..." autocomplete="off" />
     <button type="submit" class="chat-send">Send</button>
   </form>
 </div>
 
 <script>
+  // ========== CONFIG ==========
+
   const EDGE_FUNCTION_URL = "https://dnydfloxmiayfapyikdz.supabase.co/functions/v1/rapid-handler";
   const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRueWRmbG94bWlheWZhcHlpa2R6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2ODU2MzAsImV4cCI6MjA5MDI2MTYzMH0.gy7o9WtxNFG1QYFMF0oDmrDguKMk9xoQtKpsQPReFTk";
 
-  const CHAT_SESSION_KEY = "mte_chat_session_id";
 
-  function getChatSessionId() {
-    let sessionId = localStorage.getItem(CHAT_SESSION_KEY);
+  // ========== SESSION ==========
+  // A unique session ID is generated once per browser and stored in localStorage.
+  // This is sent with every request so the backend can track multi-step flows (e.g. lead capture).
 
-    if (!sessionId) {
-      sessionId =
-        "session_" +
-        Date.now() +
-        "_" +
-        Math.random().toString(36).slice(2, 10);
+  const SESSION_ID = (() => {
+    const KEY = "mte_chat_session_id";
+    return localStorage.getItem(KEY) || (() => {
+      const id = `session_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+      localStorage.setItem(KEY, id);
+      return id;
+    })();
+  })();
 
-      localStorage.setItem(CHAT_SESSION_KEY, sessionId);
-    }
+  console.log("Session ID:", SESSION_ID);
 
-    return sessionId;
-  }
 
-  const CHAT_SESSION_ID = getChatSessionId();
-  console.log("SESSION ID:", CHAT_SESSION_ID);
-  const chatbotToggle = document.getElementById("chatbot-toggle");
-  const chatbotPanel = document.getElementById("chatbot-panel");
-  const chatbotClose = document.getElementById("chatbot-close");
-  const chatMessages = document.getElementById("chat-messages");
-  const chatForm = document.getElementById("chat-form");
-  const chatInput = document.getElementById("chat-input");
+  // ========== DOM REFS ==========
 
-  chatbotToggle.addEventListener("click", () => {
-    chatbotPanel.style.display = "flex";
-  });
+  const panel      = document.getElementById("chatbot-panel");
+  const messages   = document.getElementById("chat-messages");
+  const chatForm   = document.getElementById("chat-form");
+  const chatInput  = document.getElementById("chat-input");
 
-  chatbotClose.addEventListener("click", () => {
-    chatbotPanel.style.display = "none";
-  });
 
-  function scrollToBottom() {
-    chatMessages.scrollTop = chatMessages.scrollHeight;
-  }
+  // ========== PANEL TOGGLE ==========
 
+  document.getElementById("chatbot-toggle").addEventListener("click", () => panel.style.display = "flex");
+  document.getElementById("chatbot-close").addEventListener("click",  () => panel.style.display = "none");
+
+
+  // ========== DOM HELPERS ==========
+
+  /** Scroll the message list to the latest message */
+  const scrollToBottom = () => messages.scrollTop = messages.scrollHeight;
+
+  /** Append a chat bubble (user or bot) */
   function addMessage(text, sender = "bot") {
-    const msg = document.createElement("div");
-    msg.className = `message ${sender}`;
-    msg.textContent = text;
-    chatMessages.appendChild(msg);
+    const el = document.createElement("div");
+    el.className = `message ${sender}`;
+    el.textContent = text;
+    messages.appendChild(el);
     scrollToBottom();
   }
 
-  function addTyping() {
-    const typing = document.createElement("div");
-    typing.className = "typing";
-    typing.id = "typing-indicator";
-    typing.textContent = "Uttara is typing...";
-    chatMessages.appendChild(typing);
+  /** Show the "Uttara is typing…" indicator */
+  function showTyping() {
+    const el = document.createElement("div");
+    el.className = "typing";
+    el.id = "typing-indicator";
+    el.textContent = "Uttara is typing...";
+    messages.appendChild(el);
     scrollToBottom();
   }
 
-  function removeTyping() {
-    const typing = document.getElementById("typing-indicator");
-    if (typing) typing.remove();
-  }
+  /** Remove the typing indicator */
+  const hideTyping = () => document.getElementById("typing-indicator")?.remove();
 
-  function addImages(images) {
-    if (!images || !images.length) return;
 
-    const wrap = document.createElement("div");
-    wrap.className = "bot-image-list";
+  // ========== RENDER: IMAGE CARDS ==========
+  // Renders product image cards returned by the backend (label + clickable image linking to product page)
 
-    images.forEach((img) => {
-      const card = document.createElement("a");
-      card.href = img.page_url || "#";
-      card.target = "_blank";
-      card.rel = "noopener noreferrer";
-      card.className = "bot-image-card";
+  function renderImages(images = []) {
+    if (!images.length) return;
 
-      const image = document.createElement("img");
-      image.src = img.url;
-      image.alt = img.label || "Flooring image";
+    const grid = document.createElement("div");
+    grid.className = "bot-image-list";
 
-      const label = document.createElement("div");
-      label.className = "bot-image-label";
-      label.textContent = img.label || "View sample";
+    images.forEach(img => {
+      const card = Object.assign(document.createElement("a"), {
+        href:      img.page_url || "#",
+        target:    "_blank",
+        rel:       "noopener noreferrer",
+        className: "bot-image-card",
+      });
 
-      card.appendChild(image);
-      card.appendChild(label);
-      wrap.appendChild(card);
+      const image = Object.assign(document.createElement("img"), {
+        src: img.url,
+        alt: img.label || "Flooring image",
+      });
+
+      const label = Object.assign(document.createElement("div"), {
+        className:   "bot-image-label",
+        textContent: img.label || "View sample",
+      });
+
+      card.append(image, label);
+      grid.appendChild(card);
     });
 
-    chatMessages.appendChild(wrap);
+    messages.appendChild(grid);
     scrollToBottom();
   }
 
-  function renderContactActions(contact) {
+
+  // ========== RENDER: CONTACT ACTIONS ==========
+  // Renders clickable contact cards (phone, email, WhatsApp, hours, address)
+  // only when the backend returns a `contact` object.
+
+  function renderContact(contact) {
     if (!contact) return;
 
-    const hasAny =
-      contact.email ||
-      contact.phone ||
-      contact.whatsapp ||
-      contact.working_hours ||
-      contact.address;
+    const items = [
+      contact.phone         && { tag: "a",    href: `tel:${contact.phone.replace(/\s+/g,"")}`,            text: `📞 Call ${contact.phone}` },
+      contact.email         && { tag: "a",    href: `mailto:${contact.email}`,                             text: `📧 Email ${contact.email}` },
+      contact.whatsapp      && { tag: "a",    href: `https://wa.me/${contact.whatsapp}`, target: "_blank", text: "💬 Chat on WhatsApp" },
+      contact.working_hours && { tag: "div",  text: `🕒 ${contact.working_hours}` },
+      contact.address       && { tag: "div",  text: `📍 ${contact.address}` },
+    ].filter(Boolean);
 
-    if (!hasAny) return;
+    if (!items.length) return;
 
-      const wrap = document.createElement("div");
-      wrap.className = "bot-contact-actions";
-      wrap.style.display = "grid";
-      wrap.style.gap = "8px";
-      wrap.style.marginBottom = "12px";
+    const wrap = document.createElement("div");
+    wrap.className = "bot-contact-actions";
 
-    if (contact.phone) {
-      const phoneLink = document.createElement("a");
-      phoneLink.href = `tel:${contact.phone.replace(/\s+/g, "")}`;
-      phoneLink.textContent = `📞 Call ${contact.phone}`;
-      phoneLink.className = "bot-image-card";
-      phoneLink.style.padding = "10px 12px";
-      phoneLink.style.textDecoration = "none";
-      phoneLink.style.color = "inherit";
-      wrap.appendChild(phoneLink);
-    }
+    items.forEach(item => {
+      const el = document.createElement(item.tag);
+      el.className   = "contact-card";
+      el.textContent = item.text;
+      if (item.href)   el.href   = item.href;
+      if (item.target) { el.target = item.target; el.rel = "noopener noreferrer"; }
+      wrap.appendChild(el);
+    });
 
-    if (contact.email) {
-      const emailLink = document.createElement("a");
-      emailLink.href = `mailto:${contact.email}`;
-      emailLink.textContent = `📧 Email ${contact.email}`;
-      emailLink.className = "bot-image-card";
-      emailLink.style.padding = "10px 12px";
-      emailLink.style.textDecoration = "none";
-      emailLink.style.color = "inherit";
-      wrap.appendChild(emailLink);
-    }
-
-    if (contact.whatsapp) {
-      const whatsappLink = document.createElement("a");
-      whatsappLink.href = `https://wa.me/${contact.whatsapp}`;
-      whatsappLink.target = "_blank";
-      whatsappLink.rel = "noopener noreferrer";
-      whatsappLink.textContent = "💬 Chat on WhatsApp";
-      whatsappLink.className = "bot-image-card";
-      whatsappLink.style.padding = "10px 12px";
-      whatsappLink.style.textDecoration = "none";
-      whatsappLink.style.color = "inherit";
-      wrap.appendChild(whatsappLink);
-    }
-
-    if (contact.working_hours) {
-      const hours = document.createElement("div");
-      hours.className = "bot-image-card";
-      hours.style.padding = "10px 12px";
-      hours.textContent = `🕒 ${contact.working_hours}`;
-      wrap.appendChild(hours);
-    }
-
-    if (contact.address) {
-      const address = document.createElement("div");
-      address.className = "bot-image-card";
-      address.style.padding = "10px 12px";
-      address.textContent = `📍 ${contact.address}`;
-      wrap.appendChild(address);
-    }
-
-    chatMessages.appendChild(wrap);
+    messages.appendChild(wrap);
     scrollToBottom();
   }
 
-  async function sendMessageToBot(userText) {
-    const response = await fetch(EDGE_FUNCTION_URL, {
+
+  // ========== API CALL ==========
+  // Sends the user message + session ID to the Supabase edge function.
+  // The session ID lets the backend resume multi-step flows (lead capture name → phone → suburb).
+
+  async function sendMessage(text) {
+    const res = await fetch(EDGE_FUNCTION_URL, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
-        "apikey": SUPABASE_ANON_KEY,
+        "Content-Type":  "application/json",
+        "apikey":        SUPABASE_ANON_KEY,
         "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
-        "x-session-id": CHAT_SESSION_ID
+        "x-session-id":  SESSION_ID,           // ← key: ties this request to the ongoing flow
       },
-      body: JSON.stringify({
-        message: userText
-      })
+      body: JSON.stringify({ message: text }),
     });
 
-    if (!response.ok) {
-      throw new Error(`Request failed: ${response.status}`);
-    }
-
-    return await response.json();
+    if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+    return res.json();
   }
+
+
+  // ========== FORM SUBMIT ==========
 
   chatForm.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -426,24 +284,21 @@
 
     addMessage(text, "user");
     chatInput.value = "";
-    addTyping();
+    showTyping();
 
     try {
-      const result = await sendMessageToBot(text);
-      console.log("CHAT_SESSION_ID:", CHAT_SESSION_ID);
-      console.log("BOT RESULT:", result);
-      removeTyping();
+      const result = await sendMessage(text);
+      console.log("Bot result:", result);
+      hideTyping();
 
-      if (!result.ok) {
-        addMessage("Sorry, something went wrong.");
-        return;
-      }
+      if (!result.ok) { addMessage("Sorry, something went wrong."); return; }
 
       addMessage(result.message?.text || "No response received.", "bot");
-      addImages(result.message?.images || []);
-      renderContactActions(result.contact || null);
+      renderImages(result.message?.images || []);
+      renderContact(result.contact || null);
+
     } catch (err) {
-      removeTyping();
+      hideTyping();
       console.error(err);
       addMessage("Sorry, I couldn't reach the assistant.", "bot");
     }
