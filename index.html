@@ -222,10 +222,31 @@
 
   // ========== MESSAGE BUBBLES ==========
 
+  // Renders safe inline markdown: **bold**, *italic*, and newlines.
+  // All text is escaped first to prevent XSS — only known patterns become HTML.
+  function renderMarkdown(text) {
+    // 1. Escape HTML entities so no raw HTML from the API can execute
+    const escaped = text
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+
+    // 2. Convert markdown patterns to HTML
+    return escaped
+      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")   // **bold**
+      .replace(/\*(.+?)\*/g, "<em>$1</em>")               // *italic*
+      .replace(/\n/g, "<br>");                             // newlines
+  }
+
   function addMessage(text, sender = "bot") {
     const el = document.createElement("div");
     el.className = `message ${sender}`;
-    el.textContent = text;
+    if (sender === "bot") {
+      el.innerHTML = renderMarkdown(text);
+    } else {
+      el.textContent = text;  // user messages stay plain text — no need to render markdown
+    }
     messages.appendChild(el);
     scrollToBottom();
   }
