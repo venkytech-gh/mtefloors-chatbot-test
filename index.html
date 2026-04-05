@@ -115,6 +115,30 @@
     }
     .lead-form-submit:disabled { opacity: 0.6; cursor: not-allowed; }
 
+    /* ========== SLOT PICKER ========== */
+    .slot-picker { margin-bottom: 12px; width: 90%; }
+    .slot-picker-title {
+      font-size: 13px; font-weight: 600; color: #555;
+      margin-bottom: 8px;
+    }
+    .slot-date-group { margin-bottom: 10px; }
+    .slot-date-label {
+      font-size: 12px; font-weight: 600; color: #5a3e2b;
+      margin-bottom: 4px; padding: 2px 0;
+    }
+    .slot-btn {
+      display: block; width: 100%;
+      padding: 10px 12px; margin-bottom: 6px;
+      background: white; border: 1px solid #ddd;
+      border-radius: 8px; font-size: 14px;
+      cursor: pointer; text-align: left;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .slot-btn:hover { border-color: #5a3e2b; background: #fff8f2; }
+    .slot-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .slot-btn .slot-time { font-weight: 600; }
+    .slot-btn .slot-duration { font-size: 12px; color: #888; margin-left: 8px; }
+
     /* ========== INPUT BAR ========== */
     .chat-input-wrap { display: flex; border-top: 1px solid #ddd; background: white; }
     .chat-input { flex: 1; padding: 12px; border: none; outline: none; font-size: 14px; }
@@ -476,14 +500,175 @@
     chatForm.style.display = "flex";
   }
 
+  function removeSlotPicker() {
+    document.getElementById("slot-picker")?.remove();
+    chatForm.style.display = "flex";
+  }
+
+
+  // ========== SLOT PICKER ==========
+  // Renders available time slots grouped by date.
+  // When a slot is clicked, it first checks if we have the customer's details
+  // (from a prior lead capture). If not, shows the lead form first.
+
+  function showSlotPicker(slots) {
+    chatForm.style.display = "none";
+    removeSlotPicker(); // remove any existing picker
+
+    const container = document.createElement("div");
+    container.className = "slot-picker";
+    container.id = "slot-picker";
+
+    // Group slots by date
+    const grouped = {};
+    slots.forEach(slot => {
+      const date = new Date(slot.start);
+      const dateKey = date.toLocaleDateString("en-AU", {
+        timeZone: "Australia/Sydney",
+        weekday: "long", day: "numeric", month: "short"
+      });
+      if (!grouped[dateKey]) grouped[dateKey] = [];
+      grouped[dateKey].push(slot);
+    });
+
+    for (const [dateLabel, dateSlots] of Object.entries(grouped)) {
+      const group = document.createElement("div");
+      group.className = "slot-date-group";
+
+      const label = document.createElement("div");
+      label.className = "slot-date-label";
+      label.textContent = dateLabel;
+      group.appendChild(label);
+
+      dateSlots.forEach(slot => {
+        const btn = document.createElement("button");
+        btn.className = "slot-btn";
+
+        const time = new Date(slot.start).toLocaleTimeString("en-AU", {
+          timeZone: "Australia/Sydney",
+          hour: "numeric", minute: "2-digit", hour12: true
+        });
+
+        btn.innerHTML = `<span class="slot-time">${time}</span><span class="slot-duration">30 min</span>`;
+
+        btn.addEventListener("click", () => confirmSlotBooking(slot, container));
+        group.appendChild(btn);
+      });
+
+      container.appendChild(group);
+    }
+
+    messages.appendChild(container);
+    scrollToBottom();
+  }
+
+  // When user clicks a slot — collect name/phone if not already known, then book
+  async function confirmSlotBooking(slot, pickerContainer) {
+    // Disable all slot buttons to prevent double-booking
+    pickerContainer.querySelectorAll(".slot-btn").forEach(b => b.disabled = true);
+
+    const time = new Date(slot.start).toLocaleTimeString("en-AU", {
+      timeZone: "Australia/Sydney", hour: "numeric", minute: "2-digit", hour12: true
+    });
+    const dateStr = new Date(slot.start).toLocaleDateString("en-AU", {
+      timeZone: "Australia/Sydney", weekday: "short", day: "numeric", month: "short"
+    });
+    const slotLabel = `${dateStr}, ${time}`;
+
+    addMessage(slotLabel, "user");
+    pickerContainer.remove();
+
+    // Check if we need contact details — show a compact form
+    chatForm.style.display = "none";
+
+    const card = document.createElement("div");
+    card.className = "lead-form-card";
+    card.id = "booking-form-card";
+
+    const heading = document.createElement("div");
+    heading.style.cssText = "font-size:13px;font-weight:600;color:#5a3e2b;margin-bottom:8px;";
+    heading.textContent = "Your details to confirm the booking:";
+    card.appendChild(heading);
+
+    const fields = [
+      { id: "bf-name",  label: "Your name",             type: "text", placeholder: "e.g. John Smith" },
+      { id: "bf-phone", label: "Phone (Australian)",    type: "tel",  placeholder: "e.g. 0412 345 678" },
+    ];
+
+    fields.forEach(f => {
+      card.append(
+        Object.assign(document.createElement("label"), { htmlFor: f.id, textContent: f.label }),
+        Object.assign(document.createElement("input"), { id: f.id, type: f.type, placeholder: f.placeholder, autocomplete: "off" }),
+        Object.assign(document.createElement("div"),   { className: "field-error", id: `${f.id}-err` })
+      );
+    });
+
+    const submitBtn = Object.assign(document.createElement("button"), {
+      className: "lead-form-submit", textContent: "Confirm Booking",
+    });
+    card.appendChild(submitBtn);
+    messages.appendChild(card);
+    scrollToBottom();
+    document.getElementById("bf-name").focus();
+
+    function setError(id, msg) {
+      const el = document.getElementById(`${id}-err`);
+      el.textContent = msg; el.style.display = msg ? "block" : "none";
+      document.getElementById(id).style.borderColor = msg ? "#c0392b" : "#ccc";
+    }
+
+    ["bf-name", "bf-phone"].forEach(id =>
+      document.getElementById(id).addEventListener("input", () => setError(id, ""))
+    );
+
+    submitBtn.addEventListener("click", async () => {
+      const name  = document.getElementById("bf-name").value.trim();
+      const phone = normalisePhone(document.getElementById("bf-phone").value);
+      let valid = true;
+
+      if (!name || name.length < 2) { setError("bf-name", "Please enter your name."); valid = false; }
+      else setError("bf-name", "");
+
+      if (!AUS_PHONE_RE.test(phone)) { setError("bf-phone", "Enter a valid Australian number."); valid = false; }
+      else setError("bf-phone", "");
+
+      if (!valid) return;
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Booking...";
+      addMessage(`${name}, ${phone}`, "user");
+      card.remove();
+      chatForm.style.display = "flex";
+
+      showTyping();
+      try {
+        const result = await sendToBot("booking_confirmation", null, {
+          start: slot.start,
+          end: slot.end,
+          label: slotLabel,
+          name: name,
+          phone: phone,
+        });
+        hideTyping();
+        if (!result.ok) { addMessage("Sorry, something went wrong. Please try again."); return; }
+        addMessage(result.message?.text || "Booking confirmed!", "bot");
+      } catch (err) {
+        hideTyping();
+        console.error(err);
+        addMessage("Sorry, I couldn't complete the booking. Please try again.", "bot");
+      }
+    });
+  }
+
 
   // ========== API CALL ==========
   // Sends a message + session ID to the Supabase edge function.
   // The session ID ties this request to the correct conversation state in the DB.
 
-  async function sendToBot(text, leadData = null) {
+  async function sendToBot(text, leadData = null, bookingData = null) {
     const payload = { message: text };
     if (leadData) payload.lead_data = leadData;
+    if (bookingData) payload.booking_data = bookingData;
 
     const res = await fetch(EDGE_FUNCTION_URL, {
       method: "POST",
@@ -523,6 +708,13 @@
     }
 
     addMessage(result.message?.text || "No response received.", "bot");
+
+    // Scheduling: show slot picker if backend returned available slots
+    if (result.scheduling?.slots?.length) {
+      showSlotPicker(result.scheduling.slots);
+      return;
+    }
+
     renderImages(result.message?.images || []);
     renderContact(result.contact || null);
   }
