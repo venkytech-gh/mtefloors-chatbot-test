@@ -644,6 +644,7 @@
       hideTyping();
       if (!result.ok) { addMessage("Sorry, something went wrong. Please try again."); return; }
       addMessage(result.message?.text || "Booking confirmed!", "bot");
+      if (result.scheduling) { renderCalendarInvite(result.scheduling); }
     } catch (err) {
       hideTyping();
       console.error(err);
