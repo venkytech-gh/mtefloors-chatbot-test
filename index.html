@@ -397,11 +397,8 @@
       submitBtn.disabled = true;
       submitBtn.textContent = "Sending...";
 
-      // Combine into a single structured message the backend can parse
-      const combinedMessage = `${values.name}, ${values.phone}, ${values.suburb}`;
-
       // Show as a user bubble so the conversation looks natural
-      addMessage(combinedMessage, "user");
+      addMessage(`${values.name}, ${values.phone}, ${values.suburb}`, "user");
 
       // Remove the form and restore the normal input bar
       card.remove();
@@ -409,7 +406,12 @@
 
       showTyping();
       try {
-        const result = await sendToBot(combinedMessage);
+        // Send structured lead_data so backend skips the LLM parsing step
+        const result = await sendToBot("lead_form_submission", {
+          name: values.name,
+          phone: values.phone,
+          suburb: values.suburb,
+        });
         hideTyping();
         if (!result.ok) { addMessage("Sorry, something went wrong. Please try again."); return; }
         addMessage(result.message?.text || "No response received.", "bot");
@@ -433,7 +435,10 @@
   // Sends a message + session ID to the Supabase edge function.
   // The session ID ties this request to the correct conversation state in the DB.
 
-  async function sendToBot(text) {
+  async function sendToBot(text, leadData = null) {
+    const payload = { message: text };
+    if (leadData) payload.lead_data = leadData;
+
     const res = await fetch(EDGE_FUNCTION_URL, {
       method: "POST",
       headers: {
@@ -442,7 +447,7 @@
         "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
         "x-session-id":  SESSION_ID,
       },
-      body: JSON.stringify({ message: text }),
+      body: JSON.stringify(payload),
     });
     if (!res.ok) throw new Error(`Request failed: ${res.status}`);
     return res.json();
