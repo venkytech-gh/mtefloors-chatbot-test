@@ -7,12 +7,9 @@
   <style>
     /* ========== BASE ========== */
     body { font-family: Arial, sans-serif; margin: 0; background: #f5f5f5; color: #333; }
-
     header { background: #5a3e2b; color: white; padding: 20px; text-align: center; }
-
     main { padding: 40px; max-width: 900px; margin: auto; background: white; }
     main h1 { margin-top: 0; }
-
     .highlight { background: #fff4e6; padding: 20px; border-radius: 8px; margin-top: 20px; }
 
     /* ========== CHAT TOGGLE BUTTON ========== */
@@ -62,8 +59,8 @@
       display: block; text-decoration: none; color: inherit;
       background: white; border: 1px solid #eee; border-radius: 10px; overflow: hidden;
     }
-    .bot-image-card img   { width: 100%; display: block; object-fit: cover; max-height: 180px; }
-    .bot-image-label      { padding: 8px 10px; font-size: 14px; font-weight: 600; }
+    .bot-image-card img { width: 100%; display: block; object-fit: cover; max-height: 180px; }
+    .bot-image-label    { padding: 8px 10px; font-size: 14px; font-weight: 600; }
 
     /* ========== CONTACT ACTION CARDS ========== */
     .bot-contact-actions { display: grid; gap: 8px; margin-bottom: 12px; }
@@ -74,10 +71,49 @@
       background: white; border: 1px solid #eee; border-radius: 10px;
     }
 
+    /* ========== LEAD CAPTURE FORM CARD ========== */
+    /* Rendered inline in the message list when the backend sets step = "awaiting_details".
+       Replaces the normal text input for that turn only — the regular input bar is hidden. */
+
+    .lead-form-card {
+      background: white; border: 1px solid #ddd;
+      border-radius: 12px; padding: 14px;
+      margin-bottom: 12px; width: 90%;
+    }
+
+    .lead-form-card label {
+      display: block; font-size: 12px;
+      font-weight: 600; color: #555;
+      margin-bottom: 3px; margin-top: 10px;
+    }
+    .lead-form-card label:first-of-type { margin-top: 0; }
+
+    .lead-form-card input {
+      width: 100%; padding: 8px 10px;
+      border: 1px solid #ccc; border-radius: 7px;
+      font-size: 14px; box-sizing: border-box;
+      outline: none;
+    }
+    .lead-form-card input:focus { border-color: #5a3e2b; }
+
+    .lead-form-card .field-error {
+      font-size: 11px; color: #c0392b;
+      margin-top: 3px; display: none;
+    }
+
+    .lead-form-submit {
+      margin-top: 12px; width: 100%;
+      padding: 10px; background: #5a3e2b;
+      color: white; border: none;
+      border-radius: 7px; font-size: 14px;
+      cursor: pointer; font-weight: 600;
+    }
+    .lead-form-submit:disabled { opacity: 0.6; cursor: not-allowed; }
+
     /* ========== INPUT BAR ========== */
     .chat-input-wrap { display: flex; border-top: 1px solid #ddd; background: white; }
-    .chat-input  { flex: 1; padding: 12px; border: none; outline: none; font-size: 14px; }
-    .chat-send   { padding: 12px 16px; border: none; background: #5a3e2b; color: white; cursor: pointer; }
+    .chat-input { flex: 1; padding: 12px; border: none; outline: none; font-size: 14px; }
+    .chat-send  { padding: 12px 16px; border: none; background: #5a3e2b; color: white; cursor: pointer; }
   </style>
 </head>
 
@@ -92,7 +128,6 @@
   <h2>Welcome</h2>
   <p>This is a test site for our virtual flooring assistant, Uttara. She can help you explore flooring options and arrange a quote.</p>
   <div class="highlight">💬 Try chatting with Uttara using the button at the bottom right.</div>
-
   <h2>Our Services</h2>
   <ul>
     <li>Solid timber flooring</li>
@@ -126,8 +161,8 @@
 
 
   // ========== SESSION ==========
-  // A unique session ID is generated once per browser and stored in localStorage.
-  // This is sent with every request so the backend can track multi-step flows (e.g. lead capture).
+  // One session ID per browser, stored in localStorage.
+  // Sent on every request so the backend knows which conversation step we're on.
 
   const SESSION_ID = (() => {
     const KEY = "mte_chat_session_id";
@@ -138,15 +173,13 @@
     })();
   })();
 
-  console.log("Session ID:", SESSION_ID);
-
 
   // ========== DOM REFS ==========
 
-  const panel      = document.getElementById("chatbot-panel");
-  const messages   = document.getElementById("chat-messages");
-  const chatForm   = document.getElementById("chat-form");
-  const chatInput  = document.getElementById("chat-input");
+  const panel     = document.getElementById("chatbot-panel");
+  const messages  = document.getElementById("chat-messages");
+  const chatForm  = document.getElementById("chat-form");
+  const chatInput = document.getElementById("chat-input");
 
 
   // ========== PANEL TOGGLE ==========
@@ -155,12 +188,13 @@
   document.getElementById("chatbot-close").addEventListener("click",  () => panel.style.display = "none");
 
 
-  // ========== DOM HELPERS ==========
+  // ========== SCROLL ==========
 
-  /** Scroll the message list to the latest message */
   const scrollToBottom = () => messages.scrollTop = messages.scrollHeight;
 
-  /** Append a chat bubble (user or bot) */
+
+  // ========== MESSAGE BUBBLES ==========
+
   function addMessage(text, sender = "bot") {
     const el = document.createElement("div");
     el.className = `message ${sender}`;
@@ -169,7 +203,9 @@
     scrollToBottom();
   }
 
-  /** Show the "Uttara is typing…" indicator */
+
+  // ========== TYPING INDICATOR ==========
+
   function showTyping() {
     const el = document.createElement("div");
     el.className = "typing";
@@ -179,38 +215,25 @@
     scrollToBottom();
   }
 
-  /** Remove the typing indicator */
   const hideTyping = () => document.getElementById("typing-indicator")?.remove();
 
 
   // ========== RENDER: IMAGE CARDS ==========
-  // Renders product image cards returned by the backend (label + clickable image linking to product page)
 
   function renderImages(images = []) {
     if (!images.length) return;
-
     const grid = document.createElement("div");
     grid.className = "bot-image-list";
 
     images.forEach(img => {
       const card = Object.assign(document.createElement("a"), {
-        href:      img.page_url || "#",
-        target:    "_blank",
-        rel:       "noopener noreferrer",
-        className: "bot-image-card",
+        href: img.page_url || "#", target: "_blank",
+        rel: "noopener noreferrer", className: "bot-image-card",
       });
-
-      const image = Object.assign(document.createElement("img"), {
-        src: img.url,
-        alt: img.label || "Flooring image",
-      });
-
-      const label = Object.assign(document.createElement("div"), {
-        className:   "bot-image-label",
-        textContent: img.label || "View sample",
-      });
-
-      card.append(image, label);
+      card.append(
+        Object.assign(document.createElement("img"), { src: img.url, alt: img.label || "Flooring image" }),
+        Object.assign(document.createElement("div"), { className: "bot-image-label", textContent: img.label || "View sample" })
+      );
       grid.appendChild(card);
     });
 
@@ -219,62 +242,214 @@
   }
 
 
-  // ========== RENDER: CONTACT ACTIONS ==========
-  // Renders clickable contact cards (phone, email, WhatsApp, hours, address)
-  // only when the backend returns a `contact` object.
+  // ========== RENDER: CONTACT CARDS ==========
 
   function renderContact(contact) {
     if (!contact) return;
-
     const items = [
-      contact.phone         && { tag: "a",    href: `tel:${contact.phone.replace(/\s+/g,"")}`,            text: `📞 Call ${contact.phone}` },
-      contact.email         && { tag: "a",    href: `mailto:${contact.email}`,                             text: `📧 Email ${contact.email}` },
-      contact.whatsapp      && { tag: "a",    href: `https://wa.me/${contact.whatsapp}`, target: "_blank", text: "💬 Chat on WhatsApp" },
-      contact.working_hours && { tag: "div",  text: `🕒 ${contact.working_hours}` },
-      contact.address       && { tag: "div",  text: `📍 ${contact.address}` },
+      contact.phone         && { tag: "a",   href: `tel:${contact.phone.replace(/\s+/g,"")}`,           text: `📞 Call ${contact.phone}` },
+      contact.email         && { tag: "a",   href: `mailto:${contact.email}`,                            text: `📧 Email ${contact.email}` },
+      contact.whatsapp      && { tag: "a",   href: `https://wa.me/${contact.whatsapp}`, target: "_blank",text: "💬 Chat on WhatsApp" },
+      contact.working_hours && { tag: "div", text: `🕒 ${contact.working_hours}` },
+      contact.address       && { tag: "div", text: `📍 ${contact.address}` },
     ].filter(Boolean);
 
     if (!items.length) return;
-
     const wrap = document.createElement("div");
     wrap.className = "bot-contact-actions";
-
     items.forEach(item => {
       const el = document.createElement(item.tag);
-      el.className   = "contact-card";
+      el.className = "contact-card";
       el.textContent = item.text;
       if (item.href)   el.href   = item.href;
       if (item.target) { el.target = item.target; el.rel = "noopener noreferrer"; }
       wrap.appendChild(el);
     });
-
     messages.appendChild(wrap);
     scrollToBottom();
   }
 
 
-  // ========== API CALL ==========
-  // Sends the user message + session ID to the Supabase edge function.
-  // The session ID lets the backend resume multi-step flows (lead capture name → phone → suburb).
+  // ========== LEAD CAPTURE FORM ==========
+  // When the backend sets step = "awaiting_details", instead of asking the user
+  // to type free-form text we render a proper 3-field form (Name, Phone, Suburb)
+  // inline in the chat. The normal text input bar is hidden while the form is active.
+  //
+  // On submit:
+  //   1. Client-side validation runs first (no empty fields, AU phone format).
+  //   2. Fields are combined into a single structured string and sent as one message.
+  //   3. The form is removed and the input bar is restored.
 
-  async function sendMessage(text) {
+  // Australian phone regex: 10-digit mobiles (04xx) or landlines (02/03/07/08)
+  const AUS_PHONE_RE = /^(04\d{8}|0[2378]\d{8})$/;
+
+  function normalisePhone(raw) {
+    // Strip spaces, dashes, parentheses, then handle +61 prefix
+    const digits = raw.replace(/[\s\-().+]/g, "");
+    return digits.startsWith("61") ? "0" + digits.slice(2) : digits;
+  }
+
+  function showLeadForm() {
+    // Hide the regular input bar while the form is active
+    chatForm.style.display = "none";
+
+    const card = document.createElement("div");
+    card.className = "lead-form-card";
+    card.id = "lead-form-card";
+
+    // Build the 3 labelled fields
+    const fields = [
+      { id: "lf-name",   label: "Your name",                       type: "text",  placeholder: "e.g. John Smith" },
+      { id: "lf-phone",  label: "Phone number (Australian)",        type: "tel",   placeholder: "e.g. 0412 345 678" },
+      { id: "lf-suburb", label: "Suburb",                          type: "text",  placeholder: "e.g. Parramatta" },
+    ];
+
+    fields.forEach(f => {
+      const label = Object.assign(document.createElement("label"), {
+        htmlFor: f.id, textContent: f.label,
+      });
+      const input = Object.assign(document.createElement("input"), {
+        id: f.id, type: f.type, placeholder: f.placeholder, autocomplete: "off",
+      });
+      const err = Object.assign(document.createElement("div"), {
+        className: "field-error", id: `${f.id}-err`,
+      });
+      card.append(label, input, err);
+    });
+
+    const submitBtn = Object.assign(document.createElement("button"), {
+      className: "lead-form-submit", textContent: "Get My Free Quote",
+    });
+    card.appendChild(submitBtn);
+    messages.appendChild(card);
+    scrollToBottom();
+
+    // Focus the first field
+    document.getElementById("lf-name").focus();
+
+    // ── Inline validation helpers ──────────────────────────────────────────
+    function setError(fieldId, msg) {
+      const errEl = document.getElementById(`${fieldId}-err`);
+      errEl.textContent = msg;
+      errEl.style.display = msg ? "block" : "none";
+      document.getElementById(fieldId).style.borderColor = msg ? "#c0392b" : "#ccc";
+    }
+
+    function validateAll() {
+      const name   = document.getElementById("lf-name").value.trim();
+      const phone  = normalisePhone(document.getElementById("lf-phone").value);
+      const suburb = document.getElementById("lf-suburb").value.trim();
+      let valid = true;
+
+      if (!name || name.length < 2) {
+        setError("lf-name", "Please enter your name."); valid = false;
+      } else { setError("lf-name", ""); }
+
+      if (!AUS_PHONE_RE.test(phone)) {
+        setError("lf-phone", "Enter a valid Australian number (e.g. 0412 345 678)."); valid = false;
+      } else { setError("lf-phone", ""); }
+
+      if (!suburb || suburb.length < 2) {
+        setError("lf-suburb", "Please enter your suburb."); valid = false;
+      } else { setError("lf-suburb", ""); }
+
+      return valid ? { name, phone, suburb } : null;
+    }
+
+    // Clear error on input so feedback is immediate
+    ["lf-name", "lf-phone", "lf-suburb"].forEach(id => {
+      document.getElementById(id).addEventListener("input", () => setError(id, ""));
+    });
+
+    // ── Form submit ────────────────────────────────────────────────────────
+    submitBtn.addEventListener("click", async () => {
+      const values = validateAll();
+      if (!values) return;
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Sending...";
+
+      // Combine into a single structured message the backend can parse
+      const combinedMessage = `${values.name}, ${values.phone}, ${values.suburb}`;
+
+      // Show as a user bubble so the conversation looks natural
+      addMessage(combinedMessage, "user");
+
+      // Remove the form and restore the normal input bar
+      card.remove();
+      chatForm.style.display = "flex";
+
+      showTyping();
+      try {
+        const result = await sendToBot(combinedMessage);
+        hideTyping();
+        if (!result.ok) { addMessage("Sorry, something went wrong. Please try again."); return; }
+        addMessage(result.message?.text || "No response received.", "bot");
+        renderImages(result.message?.images || []);
+        renderContact(result.contact || null);
+      } catch (err) {
+        hideTyping();
+        console.error(err);
+        addMessage("Sorry, I couldn't reach the assistant.", "bot");
+      }
+    });
+  }
+
+  function removeLeadForm() {
+    document.getElementById("lead-form-card")?.remove();
+    chatForm.style.display = "flex";
+  }
+
+
+  // ========== API CALL ==========
+  // Sends a message + session ID to the Supabase edge function.
+  // The session ID ties this request to the correct conversation state in the DB.
+
+  async function sendToBot(text) {
     const res = await fetch(EDGE_FUNCTION_URL, {
       method: "POST",
       headers: {
         "Content-Type":  "application/json",
         "apikey":        SUPABASE_ANON_KEY,
         "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
-        "x-session-id":  SESSION_ID,           // ← key: ties this request to the ongoing flow
+        "x-session-id":  SESSION_ID,
       },
       body: JSON.stringify({ message: text }),
     });
-
     if (!res.ok) throw new Error(`Request failed: ${res.status}`);
     return res.json();
   }
 
 
-  // ========== FORM SUBMIT ==========
+  // ========== HANDLE BOT RESPONSE ==========
+  // Central function that decides what to render based on the backend's response.
+  // Key decision: if the backend says step = "awaiting_details", show the inline
+  // form instead of a plain message.
+
+  function handleBotResult(result) {
+    if (!result.ok) { addMessage("Sorry, something went wrong."); return; }
+
+    const step = result.lead?.step;
+
+    // Backend is waiting for the user's contact details — show the inline form
+    if (step === "awaiting_details") {
+      addMessage(result.message?.text || "Please fill in your details below.", "bot");
+      showLeadForm();
+      return;
+    }
+
+    // Lead flow just completed or was rejected — clean up any leftover form
+    if (step === "completed" || !result.lead?.active) {
+      removeLeadForm();
+    }
+
+    addMessage(result.message?.text || "No response received.", "bot");
+    renderImages(result.message?.images || []);
+    renderContact(result.contact || null);
+  }
+
+
+  // ========== CHAT FORM SUBMIT ==========
 
   chatForm.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -287,16 +462,10 @@
     showTyping();
 
     try {
-      const result = await sendMessage(text);
+      const result = await sendToBot(text);
       console.log("Bot result:", result);
       hideTyping();
-
-      if (!result.ok) { addMessage("Sorry, something went wrong."); return; }
-
-      addMessage(result.message?.text || "No response received.", "bot");
-      renderImages(result.message?.images || []);
-      renderContact(result.contact || null);
-
+      handleBotResult(result);
     } catch (err) {
       hideTyping();
       console.error(err);
