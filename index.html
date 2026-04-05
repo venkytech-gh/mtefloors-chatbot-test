@@ -148,7 +148,7 @@
     <div class="message bot">Hi! I'm here to help with flooring options, colours, installation, and quotes. What would you like to know?</div>
   </div>
   <form id="chat-form" class="chat-input-wrap">
-    <input id="chat-input" class="chat-input" type="text" placeholder="Ask about flooring..." autocomplete="off" />
+    <input id="chat-input" class="chat-input" type="text" placeholder="Ask about flooring..." autocomplete="off" maxlength="1000" />
     <button type="submit" class="chat-send">Send</button>
   </form>
 </div>
@@ -164,13 +164,15 @@
   // One session ID per browser, stored in localStorage.
   // Sent on every request so the backend knows which conversation step we're on.
 
+  // Session ID: alphanumeric + underscores only, max 80 chars (must match backend validation).
   const SESSION_ID = (() => {
     const KEY = "mte_chat_session_id";
-    return localStorage.getItem(KEY) || (() => {
-      const id = `session_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
-      localStorage.setItem(KEY, id);
-      return id;
-    })();
+    const existing = localStorage.getItem(KEY);
+    if (existing && /^[a-zA-Z0-9_]{1,80}$/.test(existing)) return existing;
+    // Generate new ID: "s" + timestamp base36 + random chars (all alphanumeric)
+    const id = "s" + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+    localStorage.setItem(KEY, id);
+    return id;
   })();
 
 
@@ -218,6 +220,23 @@
   const hideTyping = () => document.getElementById("typing-indicator")?.remove();
 
 
+  // ========== URL SANITISATION ==========
+  // Only allow https:// URLs to prevent javascript: / data: injection via DB compromise.
+
+  function isSafeUrl(url) {
+    if (!url || typeof url !== "string") return false;
+    try {
+      const parsed = new URL(url);
+      return parsed.protocol === "https:";
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function safeHref(url)  { return isSafeUrl(url) ? url : "#"; }
+  function safeSrc(url)   { return isSafeUrl(url) ? url : ""; }
+
+
   // ========== RENDER: IMAGE CARDS ==========
 
   function renderImages(images = []) {
@@ -226,12 +245,15 @@
     grid.className = "bot-image-list";
 
     images.forEach(img => {
+      const imgSrc = safeSrc(img.url);
+      if (!imgSrc) return; // skip images with invalid URLs entirely
+
       const card = Object.assign(document.createElement("a"), {
-        href: img.page_url || "#", target: "_blank",
+        href: safeHref(img.page_url), target: "_blank",
         rel: "noopener noreferrer", className: "bot-image-card",
       });
       card.append(
-        Object.assign(document.createElement("img"), { src: img.url, alt: img.label || "Flooring image" }),
+        Object.assign(document.createElement("img"), { src: imgSrc, alt: img.label || "Flooring image" }),
         Object.assign(document.createElement("div"), { className: "bot-image-label", textContent: img.label || "View sample" })
       );
       grid.appendChild(card);
@@ -246,10 +268,16 @@
 
   function renderContact(contact) {
     if (!contact) return;
+    // Sanitise contact values: strip anything that isn't expected for each field.
+    // Phone: digits and spaces only. Email: basic format check. WhatsApp: digits only.
+    const safePhone = (contact.phone || "").replace(/[^\d\s]/g, "");
+    const safeEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact.email || "") ? contact.email : "";
+    const safeWA    = (contact.whatsapp || "").replace(/\D/g, "");
+
     const items = [
-      contact.phone         && { tag: "a",   href: `tel:${contact.phone.replace(/\s+/g,"")}`,           text: `📞 Call ${contact.phone}` },
-      contact.email         && { tag: "a",   href: `mailto:${contact.email}`,                            text: `📧 Email ${contact.email}` },
-      contact.whatsapp      && { tag: "a",   href: `https://wa.me/${contact.whatsapp}`, target: "_blank",text: "💬 Chat on WhatsApp" },
+      safePhone && { tag: "a",   href: `tel:${safePhone.replace(/\s+/g,"")}`,              text: `📞 Call ${safePhone}` },
+      safeEmail && { tag: "a",   href: `mailto:${safeEmail}`,                               text: `📧 Email ${safeEmail}` },
+      safeWA    && { tag: "a",   href: `https://wa.me/${safeWA}`, target: "_blank",          text: "💬 Chat on WhatsApp" },
       contact.working_hours && { tag: "div", text: `🕒 ${contact.working_hours}` },
       contact.address       && { tag: "div", text: `📍 ${contact.address}` },
     ].filter(Boolean);
