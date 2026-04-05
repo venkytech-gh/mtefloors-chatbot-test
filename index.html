@@ -712,15 +712,18 @@
       );
     });
 
-    document.getElementById("bf-name").value  = existing.name  || "";
-    document.getElementById("bf-phone").value = existing.phone || "";
-
     const submitBtn = Object.assign(document.createElement("button"), {
       className: "lead-form-submit", textContent: "Confirm Booking",
     });
     card.appendChild(submitBtn);
+
+    // IMPORTANT: append card to DOM BEFORE using getElementById
     messages.appendChild(card);
     scrollToBottom();
+
+    document.getElementById("bf-name").value  = existing.name  || "";
+    document.getElementById("bf-phone").value = existing.phone || "";
+
     if (existing.name) {
       document.getElementById("bf-phone").focus();
     } else {
