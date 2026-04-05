@@ -244,7 +244,8 @@
 
     // Reset session state
     _knownCustomer = null;
-    _sessionAction = null;
+    _quoteDone = false;
+    _meetingDone = false;
 
     // Generate a fresh session ID so backend starts clean
     const newId = "s" + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
@@ -508,7 +509,7 @@
         hideTyping();
         if (!result.ok) { addMessage("Sorry, something went wrong. Please try again."); return; }
         addMessage(result.message?.text || "No response received.", "bot");
-        _sessionAction = "quote";
+        _quoteDone = true;
         if (result.customer && (result.customer.name || result.customer.phone)) {
           _knownCustomer = result.customer;
         }
@@ -628,7 +629,8 @@
 
   // Store known customer details when the backend returns them with scheduling data
   let _knownCustomer = null;
-  let _sessionAction = null; // tracks "quote" or "meeting" — only one per session
+  let _quoteDone = false;
+  let _meetingDone = false;
 
   // When user clicks a slot — book directly if details known, otherwise ask
   async function confirmSlotBooking(slot, pickerContainer) {
@@ -672,7 +674,7 @@
       hideTyping();
       if (!result.ok) { addMessage("Sorry, something went wrong. Please try again."); return; }
       addMessage(result.message?.text || "Booking confirmed!", "bot");
-      _sessionAction = "meeting";
+      _meetingDone = true;
       if (result.scheduling) { renderCalendarInvite(result.scheduling); }
     } catch (err) {
       hideTyping();
@@ -794,8 +796,8 @@
     // Backend is waiting for the user's contact details — show the inline form
     // But block if user already completed an action (quote or meeting) this session
     if (step === "awaiting_details") {
-      if (_sessionAction) {
-        addMessage("You've already submitted your details in this session. If you need further help, feel free to ask or start a new conversation.", "bot");
+      if (_quoteDone) {
+        addMessage("You've already submitted a quote request in this session. If you need further help, feel free to ask or start a new conversation.", "bot");
         return;
       }
       addMessage(result.message?.text || "Please fill in your details below.", "bot");
@@ -815,8 +817,8 @@
     // Scheduling: show slot picker if backend returned available slots
     // But block if user already completed an action this session
     if (result.scheduling?.slots?.length) {
-      if (_sessionAction) {
-        addMessage("You've already completed a booking in this session. If you need to reschedule, please start a new conversation or contact us directly.", "bot");
+      if (_meetingDone) {
+        addMessage("You've already booked a consultation in this session. If you need to reschedule, please start a new conversation or contact us directly.", "bot");
         return;
       }
       // Store known customer details so the booking form can be skipped
