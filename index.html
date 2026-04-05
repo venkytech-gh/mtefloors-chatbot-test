@@ -487,6 +487,7 @@
         addMessage(result.message?.text || "No response received.", "bot");
         renderImages(result.message?.images || []);
         renderContact(result.contact || null);
+        renderCalendarInvite(result.scheduling || null);
       } catch (err) {
         hideTyping();
         console.error(err);
@@ -561,6 +562,42 @@
     messages.appendChild(container);
     scrollToBottom();
   }
+  function renderCalendarInvite(scheduling) {
+    if (!scheduling || !scheduling.confirmed || !scheduling.calendar) return;
+
+    const wrap = document.createElement("div");
+    wrap.className = "bot-contact-actions";
+    wrap.style.display = "grid";
+    wrap.style.gap = "8px";
+    wrap.style.marginBottom = "12px";
+
+    if (scheduling.calendar.google_calendar_link) {
+      const googleLink = document.createElement("a");
+      googleLink.href = scheduling.calendar.google_calendar_link;
+      googleLink.target = "_blank";
+      googleLink.rel = "noopener noreferrer";
+      googleLink.className = "contact-card";
+      googleLink.textContent = "📅 Open in Google Calendar";
+      wrap.appendChild(googleLink);
+    }
+
+    if (scheduling.calendar.ics_download_url) {
+      const icsLink = document.createElement("a");
+      icsLink.href = scheduling.calendar.ics_download_url;
+      icsLink.download = "mte-floors-consultation.ics";
+      icsLink.className = "contact-card";
+      icsLink.textContent = "⬇️ Download calendar invite (.ics)";
+      wrap.appendChild(icsLink);
+    }
+
+    const note = document.createElement("div");
+    note.className = "contact-card";
+    note.textContent = "You can use either option to add this booking to your own calendar. If you need to cancel or change it, please use the meeting invite or contact us.";
+    wrap.appendChild(note);
+
+    messages.appendChild(wrap);
+    scrollToBottom();
+  }  
 
   // Store known customer details when the backend returns them with scheduling data
   let _knownCustomer = null;
