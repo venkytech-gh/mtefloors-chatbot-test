@@ -562,9 +562,11 @@
     scrollToBottom();
   }
 
-  // When user clicks a slot — collect name/phone if not already known, then book
+  // Store known customer details when the backend returns them with scheduling data
+  let _knownCustomer = null;
+
+  // When user clicks a slot — book directly if details known, otherwise ask
   async function confirmSlotBooking(slot, pickerContainer) {
-    // Disable all slot buttons to prevent double-booking
     pickerContainer.querySelectorAll(".slot-btn").forEach(b => b.disabled = true);
 
     const time = new Date(slot.start).toLocaleTimeString("en-AU", {
@@ -578,16 +580,54 @@
     addMessage(slotLabel, "user");
     pickerContainer.remove();
 
-    // Check if we need contact details — show a compact form
+    // If we already have customer details from a prior quote, book directly
+    if (_knownCustomer && _knownCustomer.name && _knownCustomer.phone) {
+      addMessage(`Booking as ${_knownCustomer.name} (${_knownCustomer.phone})`, "bot");
+      await submitBooking(slot, slotLabel, _knownCustomer.name, _knownCustomer.phone, _knownCustomer.suburb || "");
+      return;
+    }
+
+    // Otherwise, show the compact booking form
+    showBookingForm(slot, slotLabel, _knownCustomer);
+  }
+
+  // Submit the booking to the backend
+  async function submitBooking(slot, slotLabel, name, phone, suburb) {
+    chatForm.style.display = "flex";
+    showTyping();
+    try {
+      const result = await sendToBot("booking_confirmation", null, {
+        start: slot.start,
+        end: slot.end,
+        label: slotLabel,
+        name: name,
+        phone: phone,
+        suburb: suburb || "",
+      });
+      hideTyping();
+      if (!result.ok) { addMessage("Sorry, something went wrong. Please try again."); return; }
+      addMessage(result.message?.text || "Booking confirmed!", "bot");
+    } catch (err) {
+      hideTyping();
+      console.error(err);
+      addMessage("Sorry, I couldn't complete the booking. Please try again.", "bot");
+    }
+  }
+
+  // Show booking form when we don't have customer details
+  function showBookingForm(slot, slotLabel, customer = null) {
     chatForm.style.display = "none";
 
     const card = document.createElement("div");
     card.className = "lead-form-card";
     card.id = "booking-form-card";
-
+    const existing = customer || {};
+    
     const heading = document.createElement("div");
     heading.style.cssText = "font-size:13px;font-weight:600;color:#5a3e2b;margin-bottom:8px;";
-    heading.textContent = "Your details to confirm the booking:";
+    heading.textContent = (existing.name || existing.phone)
+      ? "Please confirm your details for the booking:"
+      : "Your details to confirm the booking:";
     card.appendChild(heading);
 
     const fields = [
@@ -603,13 +643,20 @@
       );
     });
 
+    document.getElementById("bf-name").value  = existing.name  || "";
+    document.getElementById("bf-phone").value = existing.phone || "";
+
     const submitBtn = Object.assign(document.createElement("button"), {
       className: "lead-form-submit", textContent: "Confirm Booking",
     });
     card.appendChild(submitBtn);
     messages.appendChild(card);
     scrollToBottom();
-    document.getElementById("bf-name").focus();
+    if (existing.name) {
+      document.getElementById("bf-phone").focus();
+    } else {
+      document.getElementById("bf-name").focus();
+    }
 
     function setError(id, msg) {
       const el = document.getElementById(`${id}-err`);
@@ -638,25 +685,8 @@
       submitBtn.textContent = "Booking...";
       addMessage(`${name}, ${phone}`, "user");
       card.remove();
-      chatForm.style.display = "flex";
 
-      showTyping();
-      try {
-        const result = await sendToBot("booking_confirmation", null, {
-          start: slot.start,
-          end: slot.end,
-          label: slotLabel,
-          name: name,
-          phone: phone,
-        });
-        hideTyping();
-        if (!result.ok) { addMessage("Sorry, something went wrong. Please try again."); return; }
-        addMessage(result.message?.text || "Booking confirmed!", "bot");
-      } catch (err) {
-        hideTyping();
-        console.error(err);
-        addMessage("Sorry, I couldn't complete the booking. Please try again.", "bot");
-      }
+      await submitBooking(slot, slotLabel, name, phone, "");
     });
   }
 
@@ -692,7 +722,6 @@
 
   function handleBotResult(result) {
     if (!result.ok) { addMessage("Sorry, something went wrong."); return; }
-
     const step = result.lead?.step;
 
     // Backend is waiting for the user's contact details — show the inline form
@@ -706,11 +735,15 @@
     if (step === "completed" || !result.lead?.active) {
       removeLeadForm();
     }
-
+    if (result.customer && (result.customer.name || result.customer.phone)) {
+      _knownCustomer = result.customer;
+    }
     addMessage(result.message?.text || "No response received.", "bot");
 
     // Scheduling: show slot picker if backend returned available slots
     if (result.scheduling?.slots?.length) {
+      // Store known customer details so the booking form can be skipped
+      _knownCustomer = result.scheduling.customer || null;
       showSlotPicker(result.scheduling.slots);
       return;
     }
