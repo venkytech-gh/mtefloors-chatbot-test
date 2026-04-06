@@ -156,9 +156,41 @@
     .slot-btn .slot-duration { font-size: 12px; color: #888; margin-left: 8px; }
 
     /* ========== INPUT BAR ========== */
-    .chat-input-wrap { display: flex; border-top: 1px solid #ddd; background: white; }
+    .chat-input-wrap { display: flex; border-top: 1px solid #ddd; background: white; align-items: center; }
     .chat-input { flex: 1; padding: 12px; border: none; outline: none; font-size: 14px; }
     .chat-send  { padding: 12px 16px; border: none; background: #5a3e2b; color: white; cursor: pointer; }
+
+    /* ========== VOICE CONTROLS ========== */
+    .chat-mic {
+      padding: 10px 12px; border: none; background: transparent;
+      cursor: pointer; font-size: 18px; color: #5a3e2b; line-height: 1;
+      transition: color 0.2s;
+    }
+    .chat-mic:hover { color: #3e2a1b; }
+    .chat-mic.recording {
+      color: #c0392b;
+      animation: mic-pulse 1s ease-in-out infinite;
+    }
+    @keyframes mic-pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+    .chat-mic.disabled { opacity: 0.3; cursor: not-allowed; }
+
+    .voice-toggle {
+      background: transparent; border: none; color: white;
+      font-size: 14px; cursor: pointer; padding: 0 4px;
+      line-height: 1; opacity: 0.6;
+    }
+    .voice-toggle:hover { opacity: 1; }
+    .voice-toggle.active { opacity: 1; }
+
+    .voice-status {
+      font-size: 11px; color: #888; padding: 4px 14px;
+      background: #f9f9f9; border-top: 1px solid #eee;
+      display: none;
+    }
+    .voice-status.visible { display: block; }
   </style>
 </head>
 
@@ -188,6 +220,7 @@
   <div class="chatbot-header">
     <span>Uttara • MTE Floors</span>
     <div class="chatbot-header-actions">
+      <button id="voice-toggle" class="voice-toggle" title="Voice responses off">🔇</button>
       <button id="chatbot-expand" class="chatbot-expand" title="Expand">⤢</button>
       <button id="chatbot-refresh" class="chatbot-refresh" title="New conversation">&#8635;</button>
       <button id="chatbot-close" class="chatbot-close" title="Close">&times;</button>
@@ -196,8 +229,10 @@
   <div id="chat-messages" class="chat-messages">
     <div class="message bot">Hi! I'm here to help with flooring options, colours, installation, and quotes. What would you like to know?</div>
   </div>
+  <div id="voice-status" class="voice-status">🎤 Listening...</div>
   <form id="chat-form" class="chat-input-wrap">
     <input id="chat-input" class="chat-input" type="text" placeholder="Ask about flooring..." autocomplete="off" maxlength="300" />
+    <button type="button" id="chat-mic" class="chat-mic" title="Speak">🎤</button>
     <button type="submit" class="chat-send">Send</button>
   </form>
 </div>
@@ -292,13 +327,14 @@
       .replace(/\n/g, "<br>");                             // newlines
   }
 
-  function addMessage(text, sender = "bot") {
+  function addMessage(text, sender = "bot", speakIt = true) {
     const el = document.createElement("div");
     el.className = `message ${sender}`;
     if (sender === "bot") {
       el.innerHTML = renderMarkdown(text);
+      if (speakIt && typeof speakBotMessage === "function") speakBotMessage(text);
     } else {
-      el.textContent = text;  // user messages stay plain text — no need to render markdown
+      el.textContent = text;
     }
     messages.appendChild(el);
     scrollToBottom();
@@ -865,6 +901,172 @@
       hideTyping();
       console.error(err);
       addMessage("Sorry, I couldn't reach the assistant.", "bot");
+    }
+  });
+
+
+  // ========== VOICE: TEXT-TO-SPEECH (TTS) ==========
+  // Browser speechSynthesis reads bot messages aloud when enabled.
+
+  let _voiceEnabled = false;
+  const voiceToggleBtn = document.getElementById("voice-toggle");
+  const SpeechSyn = window.speechSynthesis;
+  const hasTTS = !!SpeechSyn;
+
+  // Pick the best available English (AU preferred) voice
+  let _selectedVoice = null;
+
+  function pickVoice() {
+    if (!hasTTS) return;
+    const voices = SpeechSyn.getVoices();
+    // Priority: en-AU female > en-AU any > en-GB female > en-US female > first en
+    _selectedVoice =
+      voices.find(v => v.lang === "en-AU" && /female/i.test(v.name)) ||
+      voices.find(v => v.lang === "en-AU") ||
+      voices.find(v => v.lang === "en-GB" && /female/i.test(v.name)) ||
+      voices.find(v => v.lang.startsWith("en") && /female/i.test(v.name)) ||
+      voices.find(v => v.lang.startsWith("en")) ||
+      null;
+  }
+
+  if (hasTTS) {
+    pickVoice();
+    SpeechSyn.addEventListener("voiceschanged", pickVoice);
+  }
+
+  // Strip markdown and emojis for natural speech
+  function textForSpeech(text) {
+    return text
+      .replace(/\*\*(.+?)\*\*/g, "$1")   // remove **bold**
+      .replace(/\*(.+?)\*/g, "$1")        // remove *italic*
+      .replace(/[📞📧💬🕒📍🎉⬇️📅]/g, "") // remove emojis
+      .replace(/\n+/g, ". ")              // newlines to pauses
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function speakBotMessage(text) {
+    if (!_voiceEnabled || !hasTTS) return;
+    SpeechSyn.cancel(); // stop any ongoing speech
+    const clean = textForSpeech(text);
+    if (!clean) return;
+    const utterance = new SpeechSynthesisUtterance(clean);
+    if (_selectedVoice) utterance.voice = _selectedVoice;
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+    utterance.lang = "en-AU";
+    SpeechSyn.speak(utterance);
+  }
+
+  voiceToggleBtn.addEventListener("click", () => {
+    _voiceEnabled = !_voiceEnabled;
+    voiceToggleBtn.textContent = _voiceEnabled ? "🔊" : "🔇";
+    voiceToggleBtn.title = _voiceEnabled ? "Voice responses on" : "Voice responses off";
+    voiceToggleBtn.classList.toggle("active", _voiceEnabled);
+    if (!_voiceEnabled && hasTTS) SpeechSyn.cancel();
+  });
+
+
+  // ========== VOICE: SPEECH-TO-TEXT (STT) ==========
+  // Browser SpeechRecognition converts spoken words to text input.
+
+  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const hasSTT = !!SpeechRec;
+  const micBtn = document.getElementById("chat-mic");
+  const voiceStatus = document.getElementById("voice-status");
+  let _recognition = null;
+  let _isListening = false;
+
+  if (!hasSTT) {
+    // Browser doesn't support speech recognition — hide the mic
+    micBtn.classList.add("disabled");
+    micBtn.title = "Voice input not supported in this browser";
+  }
+
+  function startListening() {
+    if (!hasSTT || _isListening) return;
+
+    // Stop any TTS that's playing so it doesn't interfere
+    if (hasTTS) SpeechSyn.cancel();
+
+    _recognition = new SpeechRec();
+    _recognition.lang = "en-AU";
+    _recognition.interimResults = true;
+    _recognition.continuous = false;
+    _recognition.maxAlternatives = 1;
+
+    _recognition.onstart = () => {
+      _isListening = true;
+      micBtn.classList.add("recording");
+      micBtn.textContent = "⏹";
+      voiceStatus.classList.add("visible");
+      voiceStatus.textContent = "🎤 Listening...";
+      chatInput.placeholder = "Listening...";
+    };
+
+    _recognition.onresult = (event) => {
+      let interim = "";
+      let final = "";
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          final += transcript;
+        } else {
+          interim += transcript;
+        }
+      }
+      // Show interim results in the input field as visual feedback
+      chatInput.value = final || interim;
+      if (interim) {
+        voiceStatus.textContent = `🎤 "${interim}"`;
+      }
+    };
+
+    _recognition.onend = () => {
+      _isListening = false;
+      micBtn.classList.remove("recording");
+      micBtn.textContent = "🎤";
+      voiceStatus.classList.remove("visible");
+      chatInput.placeholder = "Ask about flooring...";
+
+      // Auto-submit if we got text
+      const text = chatInput.value.trim();
+      if (text) {
+        chatForm.dispatchEvent(new Event("submit"));
+      }
+    };
+
+    _recognition.onerror = (event) => {
+      _isListening = false;
+      micBtn.classList.remove("recording");
+      micBtn.textContent = "🎤";
+      voiceStatus.classList.remove("visible");
+      chatInput.placeholder = "Ask about flooring...";
+
+      if (event.error === "not-allowed") {
+        addMessage("Microphone access was denied. Please allow microphone permissions to use voice input.", "bot", false);
+      } else if (event.error === "no-speech") {
+        // Silence — just reset, don't show error
+      } else {
+        console.error("Speech recognition error:", event.error);
+      }
+    };
+
+    _recognition.start();
+  }
+
+  function stopListening() {
+    if (_recognition && _isListening) {
+      _recognition.stop();
+    }
+  }
+
+  micBtn.addEventListener("click", () => {
+    if (!hasSTT) return;
+    if (_isListening) {
+      stopListening();
+    } else {
+      startListening();
     }
   });
 </script>
