@@ -751,23 +751,38 @@
   // Sends a message + session ID to the Supabase edge function.
   // The session ID ties this request to the correct conversation state in the DB.
 
+  const FETCH_TIMEOUT_MS = 15000; // 15-second timeout
+
   async function sendToBot(text, leadData = null, bookingData = null) {
     const payload = { message: text };
     if (leadData) payload.lead_data = leadData;
     if (bookingData) payload.booking_data = bookingData;
 
-    const res = await fetch(EDGE_FUNCTION_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type":  "application/json",
-        "apikey":        SUPABASE_ANON_KEY,
-        "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
-        "x-session-id":  _sessionId,
-      },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) throw new Error(`Request failed: ${res.status}`);
-    return res.json();
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
+    try {
+      const res = await fetch(EDGE_FUNCTION_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type":  "application/json",
+          "apikey":        SUPABASE_ANON_KEY,
+          "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+          "x-session-id":  _sessionId,
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+      return res.json();
+    } catch (err) {
+      clearTimeout(timer);
+      if (err.name === "AbortError") {
+        throw new Error("Request timed out. Please try again.");
+      }
+      throw err;
+    }
   }
 
 
