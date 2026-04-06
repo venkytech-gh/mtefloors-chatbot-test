@@ -616,7 +616,7 @@
 
   // ========== CUSTOM TIME FORM ==========
   // Shown when customer says none of the offered slots work.
-  // Collects: Name*, Mobile*, Email, Preferred day & time*.
+  // Collects: Name*, Mobile*, Email, Preferred date & time*.
   function showCustomTimeForm() {
     chatForm.style.display = "none";
     const card = document.createElement("div");
@@ -632,7 +632,7 @@
       { id: "ct-name",  label: "Name *",                  type: "text", placeholder: "e.g. John Smith" },
       { id: "ct-phone", label: "Mobile *",                type: "tel",  placeholder: "e.g. 0412 345 678" },
       { id: "ct-email", label: "Email",                   type: "email", placeholder: "e.g. john@example.com" },
-      { id: "ct-time",  label: "Preferred day & time *",  type: "text", placeholder: 'e.g. "Thursday 7pm"' },
+      { id: "ct-time",  label: "Preferred date & time *",  type: "text", placeholder: 'e.g. "15 Apr, 7pm"' },
     ];
 
     fields.forEach(f => {
@@ -780,17 +780,6 @@
     if (!result.ok) { addMessage("Sorry, something went wrong."); return; }
     const step = result.lead?.step;
 
-    // Custom time form — customer rejected offered slots
-    if (step === "awaiting_custom_time") {
-      if (_bookingDone) {
-        showBookingReminder();
-        return;
-      }
-      addMessage(result.message?.text || "Please fill in your details below.", "bot");
-      showCustomTimeForm();
-      return;
-    }
-
     // Clean up forms on completed steps
     if (step === "completed" || !result.lead?.active) {
       removeAllForms();
@@ -803,12 +792,16 @@
 
     addMessage(result.message?.text || "No response received.", "bot");
 
+    // Backend says to show custom time form (LLM detected user typed a preferred time)
+    if (result.show_custom_time_form) {
+      if (_bookingDone) { showBookingReminder(); return; }
+      showCustomTimeForm();
+      return;
+    }
+
     // Scheduling: show slot picker if backend returned available slots
     if (result.scheduling?.slots?.length) {
-      if (_bookingDone) {
-        showBookingReminder();
-        return;
-      }
+      if (_bookingDone) { showBookingReminder(); return; }
       showSlotPicker(result.scheduling.slots);
       return;
     }
