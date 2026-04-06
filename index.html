@@ -220,7 +220,7 @@
   <div class="chatbot-header">
     <span>Uttara • MTE Floors</span>
     <div class="chatbot-header-actions">
-      <button id="voice-toggle" class="voice-toggle" title="Voice responses off">🔇</button>
+      <button id="voice-toggle" class="voice-toggle" title="Voice mode OFF (text only)">🔇</button>
       <button id="chatbot-expand" class="chatbot-expand" title="Expand">⤢</button>
       <button id="chatbot-refresh" class="chatbot-refresh" title="New conversation">&#8635;</button>
       <button id="chatbot-close" class="chatbot-close" title="Close">&times;</button>
@@ -880,6 +880,15 @@
   }
 
 
+  // ========== TYPING ESCAPE HATCH ==========
+  // If the user starts typing while the mic is auto-listening, cancel the mic
+  // so they can type naturally. Voice mode stays ON — mic will re-activate
+  // after the next bot reply.
+  chatInput.addEventListener("input", () => {
+    if (_isListening) stopListening();
+  });
+
+
   // ========== CHAT FORM SUBMIT ==========
 
   chatForm.addEventListener("submit", async (e) => {
@@ -945,25 +954,39 @@
       .trim();
   }
 
+  // Auto-listen: activate mic after bot finishes talking (voice mode only)
+  function autoListen() {
+    if (!_voiceEnabled || !hasSTT || _isListening) return;
+    // Small delay so the browser's audio output fully stops before mic opens
+    setTimeout(() => {
+      if (_voiceEnabled && !_isListening) startListening();
+    }, 400);
+  }
+
   function speakBotMessage(text) {
-    if (!_voiceEnabled || !hasTTS) return;
+    if (!_voiceEnabled || !hasTTS) { autoListen(); return; }
     SpeechSyn.cancel(); // stop any ongoing speech
     const clean = textForSpeech(text);
-    if (!clean) return;
+    if (!clean) { autoListen(); return; }
     const utterance = new SpeechSynthesisUtterance(clean);
     if (_selectedVoice) utterance.voice = _selectedVoice;
     utterance.rate = 1.0;
     utterance.pitch = 1.0;
     utterance.lang = "en-AU";
+    // When bot finishes speaking, auto-activate mic for user's turn
+    utterance.onend = () => autoListen();
     SpeechSyn.speak(utterance);
   }
 
   voiceToggleBtn.addEventListener("click", () => {
     _voiceEnabled = !_voiceEnabled;
     voiceToggleBtn.textContent = _voiceEnabled ? "🔊" : "🔇";
-    voiceToggleBtn.title = _voiceEnabled ? "Voice responses on" : "Voice responses off";
+    voiceToggleBtn.title = _voiceEnabled ? "Voice mode ON (speak & listen)" : "Voice mode OFF (text only)";
     voiceToggleBtn.classList.toggle("active", _voiceEnabled);
-    if (!_voiceEnabled && hasTTS) SpeechSyn.cancel();
+    if (!_voiceEnabled) {
+      if (hasTTS) SpeechSyn.cancel();  // stop bot speaking
+      stopListening();                  // stop mic if active
+    }
   });
 
 
