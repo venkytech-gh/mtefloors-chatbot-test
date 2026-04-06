@@ -238,8 +238,9 @@
     // Clear all messages and restore the welcome message
     messages.innerHTML = '<div class="message bot">Hi! I\'m here to help with flooring options, colours, installation, and quotes. What would you like to know?</div>';
 
-    // Remove any active lead form / slot picker and restore input bar
+    // Remove any active forms / slot picker and restore input bar
     removeLeadForm();
+    removeCustomTimeForm();
     removeSlotPicker();
 
     // Reset session state
@@ -412,44 +413,67 @@
   }
 
   function showLeadForm() {
-    // Hide the regular input bar while the form is active
     chatForm.style.display = "none";
-
     const card = document.createElement("div");
     card.className = "lead-form-card";
     card.id = "lead-form-card";
 
-    // Build the 3 labelled fields
-    const fields = [
-      { id: "lf-name",   label: "Your name",                       type: "text",  placeholder: "e.g. John Smith" },
-      { id: "lf-phone",  label: "Phone number (Australian)",        type: "tel",   placeholder: "e.g. 0412 345 678" },
-      { id: "lf-suburb", label: "Suburb",                          type: "text",  placeholder: "e.g. Parramatta" },
-    ];
+    const known = _knownCustomer && _knownCustomer.name && _knownCustomer.phone;
 
-    fields.forEach(f => {
-      const label = Object.assign(document.createElement("label"), {
-        htmlFor: f.id, textContent: f.label,
+    if (known) {
+      // Known customer — show confirmation + suburb-only field
+      const heading = document.createElement("div");
+      heading.style.cssText = "font-size:13px;color:#5a3e2b;margin-bottom:8px;";
+      heading.innerHTML = `<strong>${_knownCustomer.name}</strong> (${_knownCustomer.phone}) — just need your suburb for the quote:`;
+      card.appendChild(heading);
+
+      const fields = [
+        { id: "lf-suburb", label: "Suburb", type: "text", placeholder: "e.g. Parramatta" },
+      ];
+      fields.forEach(f => {
+        card.append(
+          Object.assign(document.createElement("label"), { htmlFor: f.id, textContent: f.label }),
+          Object.assign(document.createElement("input"), { id: f.id, type: f.type, placeholder: f.placeholder, autocomplete: "off" }),
+          Object.assign(document.createElement("div"), { className: "field-error", id: `${f.id}-err` })
+        );
       });
-      const input = Object.assign(document.createElement("input"), {
-        id: f.id, type: f.type, placeholder: f.placeholder, autocomplete: "off",
+    } else {
+      // Full form — name, phone, suburb
+      const fields = [
+        { id: "lf-name",   label: "Your name",              type: "text", placeholder: "e.g. John Smith" },
+        { id: "lf-phone",  label: "Phone number (Australian)", type: "tel",  placeholder: "e.g. 0412 345 678" },
+        { id: "lf-suburb", label: "Suburb",                  type: "text", placeholder: "e.g. Parramatta" },
+      ];
+      fields.forEach(f => {
+        card.append(
+          Object.assign(document.createElement("label"), { htmlFor: f.id, textContent: f.label }),
+          Object.assign(document.createElement("input"), { id: f.id, type: f.type, placeholder: f.placeholder, autocomplete: "off" }),
+          Object.assign(document.createElement("div"), { className: "field-error", id: `${f.id}-err` })
+        );
       });
-      const err = Object.assign(document.createElement("div"), {
-        className: "field-error", id: `${f.id}-err`,
-      });
-      card.append(label, input, err);
-    });
+    }
 
     const submitBtn = Object.assign(document.createElement("button"), {
       className: "lead-form-submit", textContent: "Get My Free Quote",
     });
     card.appendChild(submitBtn);
+
+    // Cancel link
+    const cancelBtn = document.createElement("div");
+    cancelBtn.textContent = "No thanks, maybe later";
+    cancelBtn.style.cssText = "text-align:center;font-size:12px;color:#888;cursor:pointer;margin-top:6px;";
+    cancelBtn.addEventListener("click", () => { card.remove(); chatForm.style.display = "flex"; });
+    card.appendChild(cancelBtn);
+
     messages.appendChild(card);
     scrollToBottom();
 
-    // Focus the first field
-    document.getElementById("lf-name").focus();
+    if (known) {
+      document.getElementById("lf-suburb").focus();
+    } else {
+      document.getElementById("lf-name").focus();
+    }
 
-    // ── Inline validation helpers ──────────────────────────────────────────
     function setError(fieldId, msg) {
       const errEl = document.getElementById(`${fieldId}-err`);
       errEl.textContent = msg;
@@ -457,50 +481,39 @@
       document.getElementById(fieldId).style.borderColor = msg ? "#c0392b" : "#ccc";
     }
 
-    function validateAll() {
-      const name   = document.getElementById("lf-name").value.trim();
-      const phone  = normalisePhone(document.getElementById("lf-phone").value);
-      const suburb = document.getElementById("lf-suburb").value.trim();
-      let valid = true;
-
-      if (!name || name.length < 2) {
-        setError("lf-name", "Please enter your name."); valid = false;
-      } else { setError("lf-name", ""); }
-
-      if (!AUS_PHONE_RE.test(phone)) {
-        setError("lf-phone", "Enter a valid Australian number (e.g. 0412 345 678)."); valid = false;
-      } else { setError("lf-phone", ""); }
-
-      if (!suburb || suburb.length < 2) {
-        setError("lf-suburb", "Please enter your suburb."); valid = false;
-      } else { setError("lf-suburb", ""); }
-
-      return valid ? { name, phone, suburb } : null;
-    }
-
-    // Clear error on input so feedback is immediate
-    ["lf-name", "lf-phone", "lf-suburb"].forEach(id => {
+    // Clear error on input
+    const fieldIds = known ? ["lf-suburb"] : ["lf-name", "lf-phone", "lf-suburb"];
+    fieldIds.forEach(id => {
       document.getElementById(id).addEventListener("input", () => setError(id, ""));
     });
 
-    // ── Form submit ────────────────────────────────────────────────────────
     submitBtn.addEventListener("click", async () => {
-      const values = validateAll();
-      if (!values) return;
+      let values;
+      if (known) {
+        const suburb = document.getElementById("lf-suburb").value.trim();
+        if (!suburb || suburb.length < 2) { setError("lf-suburb", "Please enter your suburb."); return; }
+        setError("lf-suburb", "");
+        values = { name: _knownCustomer.name, phone: _knownCustomer.phone, suburb };
+      } else {
+        const name   = document.getElementById("lf-name").value.trim();
+        const phone  = normalisePhone(document.getElementById("lf-phone").value);
+        const suburb = document.getElementById("lf-suburb").value.trim();
+        let valid = true;
+        if (!name || name.length < 2) { setError("lf-name", "Please enter your name."); valid = false; } else setError("lf-name", "");
+        if (!AUS_PHONE_RE.test(phone)) { setError("lf-phone", "Enter a valid Australian number (e.g. 0412 345 678)."); valid = false; } else setError("lf-phone", "");
+        if (!suburb || suburb.length < 2) { setError("lf-suburb", "Please enter your suburb."); valid = false; } else setError("lf-suburb", "");
+        if (!valid) return;
+        values = { name, phone, suburb };
+      }
 
       submitBtn.disabled = true;
       submitBtn.textContent = "Sending...";
-
-      // Show as a user bubble so the conversation looks natural
-      addMessage(`${values.name}, ${values.phone}, ${values.suburb}`, "user");
-
-      // Remove the form and restore the normal input bar
+      addMessage(known ? `${values.suburb}` : `${values.name}, ${values.phone}, ${values.suburb}`, "user");
       card.remove();
       chatForm.style.display = "flex";
 
       showTyping();
       try {
-        // Send structured lead_data so backend skips the LLM parsing step
         const result = await sendToBot("lead_form_submission", {
           name: values.name,
           phone: values.phone,
@@ -529,9 +542,122 @@
     chatForm.style.display = "flex";
   }
 
+  function removeCustomTimeForm() {
+    document.getElementById("custom-time-form-card")?.remove();
+    chatForm.style.display = "flex";
+  }
+
   function removeSlotPicker() {
     document.getElementById("slot-picker")?.remove();
     chatForm.style.display = "flex";
+  }
+
+  // ========== CUSTOM TIME FORM ==========
+  // Shown when customer rejects offered time slots and wants a different time.
+  // Collects: name, phone, preferred time. If customer is known, only preferred time.
+  function showCustomTimeForm() {
+    chatForm.style.display = "none";
+    const card = document.createElement("div");
+    card.className = "lead-form-card";
+    card.id = "custom-time-form-card";
+
+    const known = _knownCustomer && _knownCustomer.name && _knownCustomer.phone;
+
+    if (known) {
+      const heading = document.createElement("div");
+      heading.style.cssText = "font-size:13px;color:#5a3e2b;margin-bottom:8px;";
+      heading.innerHTML = `<strong>${_knownCustomer.name}</strong> (${_knownCustomer.phone}) — when would suit you?`;
+      card.appendChild(heading);
+    }
+
+    const fields = known
+      ? [
+          { id: "ct-time", label: "Your preferred day & time", type: "text", placeholder: 'e.g. "Thursday 7pm" or "weekday mornings"' },
+        ]
+      : [
+          { id: "ct-name",  label: "Your name",                   type: "text", placeholder: "e.g. John Smith" },
+          { id: "ct-phone", label: "Phone number (Australian)",   type: "tel",  placeholder: "e.g. 0412 345 678" },
+          { id: "ct-time",  label: "Your preferred day & time",   type: "text", placeholder: 'e.g. "Thursday 7pm" or "weekday mornings"' },
+        ];
+
+    fields.forEach(f => {
+      card.append(
+        Object.assign(document.createElement("label"), { htmlFor: f.id, textContent: f.label }),
+        Object.assign(document.createElement("input"), { id: f.id, type: f.type, placeholder: f.placeholder, autocomplete: "off" }),
+        Object.assign(document.createElement("div"), { className: "field-error", id: `${f.id}-err` })
+      );
+    });
+
+    const submitBtn = Object.assign(document.createElement("button"), {
+      className: "lead-form-submit", textContent: "Submit Request",
+    });
+    card.appendChild(submitBtn);
+
+    const cancelBtn = document.createElement("div");
+    cancelBtn.textContent = "No thanks, maybe later";
+    cancelBtn.style.cssText = "text-align:center;font-size:12px;color:#888;cursor:pointer;margin-top:6px;";
+    cancelBtn.addEventListener("click", () => { card.remove(); chatForm.style.display = "flex"; });
+    card.appendChild(cancelBtn);
+
+    messages.appendChild(card);
+    scrollToBottom();
+
+    document.getElementById(known ? "ct-time" : "ct-name").focus();
+
+    function setError(id, msg) {
+      const el = document.getElementById(`${id}-err`);
+      el.textContent = msg; el.style.display = msg ? "block" : "none";
+      document.getElementById(id).style.borderColor = msg ? "#c0392b" : "#ccc";
+    }
+
+    const fieldIds = fields.map(f => f.id);
+    fieldIds.forEach(id => {
+      document.getElementById(id).addEventListener("input", () => setError(id, ""));
+    });
+
+    submitBtn.addEventListener("click", async () => {
+      let name, phone, preferredTime;
+      let valid = true;
+
+      if (known) {
+        name = _knownCustomer.name;
+        phone = _knownCustomer.phone;
+      } else {
+        name = document.getElementById("ct-name").value.trim();
+        phone = normalisePhone(document.getElementById("ct-phone").value);
+        if (!name || name.length < 2) { setError("ct-name", "Please enter your name."); valid = false; } else setError("ct-name", "");
+        if (!AUS_PHONE_RE.test(phone)) { setError("ct-phone", "Enter a valid Australian number."); valid = false; } else setError("ct-phone", "");
+      }
+
+      preferredTime = document.getElementById("ct-time").value.trim();
+      if (!preferredTime || preferredTime.length < 2) { setError("ct-time", "Please enter your preferred time."); valid = false; } else setError("ct-time", "");
+
+      if (!valid) return;
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Submitting...";
+      addMessage(known ? preferredTime : `${name}, ${phone}, ${preferredTime}`, "user");
+      card.remove();
+      chatForm.style.display = "flex";
+
+      showTyping();
+      try {
+        const result = await sendToBot("custom_time_submission", {
+          name, phone, preferred_time: preferredTime,
+        });
+        hideTyping();
+        if (!result.ok) { addMessage("Sorry, something went wrong. Please try again."); return; }
+        addMessage(result.message?.text || "We'll get back to you!", "bot");
+        _meetingDone = true;
+        if (result.customer && (result.customer.name || result.customer.phone)) {
+          _knownCustomer = result.customer;
+        }
+      } catch (err) {
+        hideTyping();
+        console.error(err);
+        addMessage("Sorry, I couldn't reach the assistant.", "bot");
+      }
+    });
   }
 
 
@@ -717,6 +843,12 @@
     });
     card.appendChild(submitBtn);
 
+    const cancelBtn = document.createElement("div");
+    cancelBtn.textContent = "Cancel";
+    cancelBtn.style.cssText = "text-align:center;font-size:12px;color:#888;cursor:pointer;margin-top:6px;";
+    cancelBtn.addEventListener("click", () => { card.remove(); chatForm.style.display = "flex"; });
+    card.appendChild(cancelBtn);
+
     // IMPORTANT: append card to DOM BEFORE using getElementById
     messages.appendChild(card);
     scrollToBottom();
@@ -796,8 +928,18 @@
     if (!result.ok) { addMessage("Sorry, something went wrong."); return; }
     const step = result.lead?.step;
 
-    // Backend is waiting for the user's contact details — show the inline form
-    // But block if user already completed an action (quote or meeting) this session
+    // Custom time form — customer rejected offered slots, wants a different time
+    if (step === "awaiting_custom_time") {
+      if (_meetingDone) {
+        addMessage("You've already submitted a consultation request in this session. If you need to reschedule, please start a new conversation or contact us directly.", "bot");
+        return;
+      }
+      addMessage(result.message?.text || "Please fill in your details below.", "bot");
+      showCustomTimeForm();
+      return;
+    }
+
+    // Backend is waiting for the user's contact details — show the quote form
     if (step === "awaiting_details") {
       if (_quoteDone) {
         addMessage("You've already submitted a quote request in this session. If you need further help, feel free to ask or start a new conversation.", "bot");
@@ -811,6 +953,7 @@
     // Lead flow just completed or was rejected — clean up any leftover form
     if (step === "completed" || !result.lead?.active) {
       removeLeadForm();
+      removeCustomTimeForm();
     }
     if (result.customer && (result.customer.name || result.customer.phone)) {
       _knownCustomer = result.customer;
