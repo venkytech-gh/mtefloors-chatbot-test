@@ -547,6 +547,11 @@
     heading.textContent = "Your details to confirm the booking:";
     card.appendChild(heading);
 
+    const privacyNote = document.createElement("div");
+    privacyNote.style.cssText = "font-size:11px;color:#888;margin-bottom:10px;line-height:1.4;";
+    privacyNote.innerHTML = 'By submitting, you agree to MTE Floors collecting your details to arrange your consultation. See our <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:#5a3e2b;">Privacy Policy</a>.';
+    card.appendChild(privacyNote);
+
     // Text fields
     const textFields = [
       { id: "bf-name",   label: "Name *",                  type: "text", placeholder: "e.g. John Smith" },
@@ -663,6 +668,11 @@
     heading.style.cssText = "font-size:13px;font-weight:600;color:#5a3e2b;margin-bottom:8px;";
     heading.textContent = "Let us know your details and preferred time:";
     card.appendChild(heading);
+
+    const privacyNote = document.createElement("div");
+    privacyNote.style.cssText = "font-size:11px;color:#888;margin-bottom:10px;line-height:1.4;";
+    privacyNote.innerHTML = 'By submitting, you agree to MTE Floors collecting your details to arrange your consultation. See our <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:#5a3e2b;">Privacy Policy</a>.';
+    card.appendChild(privacyNote);
 
     const fields = [
       { id: "ct-name",  label: "Name *",                  type: "text", placeholder: "e.g. John Smith" },
